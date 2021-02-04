@@ -1,0 +1,9 @@
+# local package
+-e .
+
+# external requirements
+numpy
+pandas
+statsmodels
+scikit-learn
+lightgbm
