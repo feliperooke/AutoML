@@ -18,7 +18,7 @@ class AutoML:
         :param jobs:
             Number of jobs used during the training and evaluation.
 
-        :param fillnan: {‘bfill’, ‘ffill’}, default ffill
+        :param fillnan: {'bfill', 'ffill'}, default ffill
             Method to use for filling holes. 
             ffill: propagate last valid observation forward to next valid.
             bfill: use next valid observation to fill gap.
@@ -134,7 +134,6 @@ class AutoML:
 
         best_model = lgb.LGBMRegressor() # Temp
 
-
         self.model = best_model
         self.quantile_models = quantile_models
 
@@ -162,7 +161,7 @@ class AutoML:
         for quantile, model in zip(self.quantiles, self.quantile_models):
             self.evaluation_results[str(quantile)] = self._evaluate_model(model, X_val, y_val, quantile)
 
-    def predict(self, X, future_steps):
+    def predict(self, X, future_steps, quantile=False):
         """
         Uses the input "X" to predict "future_steps" steps into the future.
 
@@ -171,6 +170,9 @@ class AutoML:
 
         :param future_steps:
             Number of steps in the future to predict.
+
+        :param quantile:
+            Use quantile models instead of the mean based.
 
         """
         if(len(X) < self.oldest_lag):
@@ -182,22 +184,36 @@ class AutoML:
         y = []
 
         for i in range(future_steps):
-            predict = self.model.predict(cur_X[-1].reshape(1, -1))
-            y.append(predict)
+
+            if quantile: # predict with quantile models
+                predict = []
+                for quantile_model in self.quantile_models:
+                    predict.append(quantile_model.predict(cur_X[-1].reshape(1, -1)))
+                y.append(predict)
+
+                predict = predict[1] # choose the median prediction to feed the new predictions
+            
+            else: # predict with mean model
+                predict = self.model.predict(cur_X[-1].reshape(1, -1))
+                y.append(predict)
             # y.append(self.model.predict(np.squeeze(self.input_transformation(cur_X[-self.oldest_lag:]))))
             new_input = np.append(cur_X[-1][1:], predict, axis=0)
             cur_X = np.append(cur_X, [new_input], axis=0)
 
         return y
 
-    def next(self, future_steps):
+    def next(self, future_steps, quantile=False):
         """
         Predicts the next "future_steps" steps into the future using the data inserted for training.
 
         :param future_steps:
             Number of steps in the future to predict.
+
+        :param quantile:
+            Use quantile models instead of the mean based.
+
         """
-        return self.predict(self.data, future_steps)
+        return self.predict(self.data, future_steps, quantile)
 
     def add_new_data(self, new_data_path, append=True):
         """
