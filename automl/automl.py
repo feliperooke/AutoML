@@ -212,7 +212,7 @@ class AutoML:
             Use quantile models instead of the mean based.
 
         """
-        return self.predict(self.data, future_steps, quantile)
+        return self.predict(self.data, future_steps, quantile=quantile)
 
     def add_new_data(self, new_data_path, append=True):
         """
