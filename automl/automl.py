@@ -5,6 +5,7 @@ from sklearn.metrics import mean_squared_error
 from .metrics import weighted_quantile_loss, weighted_absolute_percentage_error
 from .transformer import DataShift
 
+
 class AutoML:
     def __init__(self, path, jobs=-1, fillnan='ffill', max_input_size=40, nlags=24):
         """
@@ -14,7 +15,7 @@ class AutoML:
 
         :param path: 
             Path to the input csv. The csv must be in the format (date, value).
-            
+
         :param jobs:
             Number of jobs used during the training and evaluation.
 
@@ -27,11 +28,11 @@ class AutoML:
 
         self.path = path
         self.jobs = jobs
-        self.fillnan= fillnan
+        self.fillnan = fillnan
         self.nlags = nlags
 
         self.data = pd.read_csv(self.path)
-        self.input_transformation = lambda x:x
+        self.input_transformation = lambda x: x
         self.oldest_lag = 1
         self.quantiles = [.1, .5, .9]
 
@@ -60,14 +61,6 @@ class AutoML:
         :param model: Adapt data to the specific model.
 
         """
-
-        # Aqui vamos montando o metodo input_transformation junto com os dados
-        # Conforme a gnt for modificando o dataset, a gnt vai adicionando a mesma modificação para os dados de entrada
-        # Pq ai quando entrarem os dados novos, a gnt já tem uma função facil para colocar eles no formato que o modelo recebe
-        # Ex do que fazer:
-        # Quando fizer, normalizar(data)
-        # Seguir com self.input_transformation = lambda x: normalizar(self.input_transformation(x))
-
         data = self.data.copy()
 
         index_label, target_label = tuple(data.columns)
@@ -85,7 +78,7 @@ class AutoML:
 
         x = None
         y = None
-        x_labels = past_labels # incluir index_labels em alguns modelos
+        x_labels = past_labels  # incluir index_labels em alguns modelos
 
         # adapt the data to the chosen model
         if model == 'lightgbm':
@@ -97,7 +90,7 @@ class AutoML:
     def _evaluate_model(self, model, X_val, y_val, quantile=None):
         """
         Evaluate a specifc model given the data to be tested.
-        
+
         :param model: Model to be evaluated.
         :param X_val: X input to generate the predictions.
         :param y_val: y values that represents the real values.
@@ -129,10 +122,10 @@ class AutoML:
             'objective': 'quantile',
             'metric': 'quantile',
         }
-        quantile_models = [lgb.LGBMRegressor(alpha=quantil, **quantile_params) 
+        quantile_models = [lgb.LGBMRegressor(alpha=quantil, **quantile_params)
                            for quantil in self.quantiles]
 
-        best_model = lgb.LGBMRegressor() # Temp
+        best_model = lgb.LGBMRegressor()  # Temp
 
         self.model = best_model
         self.quantile_models = quantile_models
@@ -155,11 +148,13 @@ class AutoML:
         X_val, y_val = self.X[-self.oldest_lag:], self.y[-self.oldest_lag:]
 
         # default model
-        self.evaluation_results['default'] = self._evaluate_model(self.model, X_val, y_val)
+        self.evaluation_results['default'] = self._evaluate_model(
+            self.model, X_val, y_val)
 
         # quantile models
         for quantile, model in zip(self.quantiles, self.quantile_models):
-            self.evaluation_results[str(quantile)] = self._evaluate_model(model, X_val, y_val, quantile)
+            self.evaluation_results[str(quantile)] = self._evaluate_model(
+                model, X_val, y_val, quantile)
 
     def predict(self, X, future_steps, quantile=False):
         """
@@ -178,22 +173,24 @@ class AutoML:
         if(len(X) < self.oldest_lag):
             raise Exception(f'''Error, to make a prediction X needs to be at
                                 least {self.oldest_lag} items long''')
-        
+
         cur_X = self._data_shift.transform(X.copy())
         cur_X = cur_X[self._data_shift.past_labels].values
         y = []
 
         for i in range(future_steps):
 
-            if quantile: # predict with quantile models
+            if quantile:  # predict with quantile models
                 predict = []
                 for quantile_model in self.quantile_models:
-                    predict.append(quantile_model.predict(cur_X[-1].reshape(1, -1)))
+                    predict.append(quantile_model.predict(
+                        cur_X[-1].reshape(1, -1)))
                 y.append(predict)
 
-                predict = predict[1] # choose the median prediction to feed the new predictions
-            
-            else: # predict with mean model
+                # choose the median prediction to feed the new predictions
+                predict = predict[1]
+
+            else:  # predict with mean model
                 predict = self.model.predict(cur_X[-1].reshape(1, -1))
                 y.append(predict)
             # y.append(self.model.predict(np.squeeze(self.input_transformation(cur_X[-self.oldest_lag:]))))
@@ -218,7 +215,7 @@ class AutoML:
     def add_new_data(self, new_data_path, append=True):
         """
         Retrain data with the new input. 
-        
+
         Obs.: It can change the number of past lags.
 
         :param new_data_path:
@@ -236,7 +233,7 @@ class AutoML:
         # new_data = self.input_transformation(new_data)
 
         if append:
-            self.data = self.data.append(new_data, ignore_index = True)
+            self.data = self.data.append(new_data, ignore_index=True)
         else:
             self.data = new_data
 
