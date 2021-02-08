@@ -21,6 +21,7 @@ python setup.py install
 
 ## How to use
 
+First, the data needs to follow the date, value csv structure to be read by the model. 
 The general use follows this structure:
 
 ```python
@@ -32,11 +33,21 @@ ml = AutoML('/path/data.csv')
 After the class perform its intern operations you can interact with AutoML:
 
 ```python
-# predict the value for a date
-ml.predict('02-03-2016')
+# see the lag length chosen to perform the training and predictions
+ml.oldest_lag
 
-# append new data to the historical set
-ml.add_new_data('/path/new_data.csv', append=True)
+# see the evaluation results after the training
+# this evaluation is performed over the last oldest_lag period of the input data
+ml.evaluation_results
+
+# predict next 3 new values
+ml.next(3)
+
+# or predict future steps based on new inputs
+# the data must have at least oldest_lag length
+new_data = pd.read_csv('/path/new_data.csv')
+ml.predict(new_data, future_steps=3)
+
 ```
 
 ## Implementation details
