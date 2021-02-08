@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import lightgbm as lgb
+import lightgbm as lgbimport warnings
 from sklearn.metrics import mean_squared_error
 from .metrics import weighted_quantile_loss, weighted_absolute_percentage_error
 from .transformer import DataShift
@@ -25,6 +25,8 @@ class AutoML:
             bfill: use next valid observation to fill gap.
 
         """
+
+        warnings.filterwarnings('ignore')
 
         self.path = path
         self.jobs = jobs
