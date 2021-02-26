@@ -172,8 +172,8 @@ class AutoML:
         # configure network and trainer
         # create dataloaders for model
         batch_size = 128
-        train_dataloader = self.training.to_dataloader(train=True, batch_size=batch_size, num_workers=self.jobs)
-        val_dataloader = self.validation.to_dataloader(train=False, batch_size=batch_size * 10, num_workers=self.jobs)
+        train_dataloader = self.training.to_dataloader(train=True, batch_size=batch_size)
+        val_dataloader = self.validation.to_dataloader(train=False, batch_size=batch_size * 10)
 
         pl.seed_everything(42)
 
@@ -198,7 +198,7 @@ class AutoML:
         trainer = pl.Trainer(
             max_epochs=25,
             gpus=0,
-            weights_summary="top",
+            weights_summary=None,
             gradient_clip_val=0.1,
             # limit_train_batches=30,  # coment in for training, running validation every 30 batches
             # fast_dev_run=True,  # comment in to check that networkor dataset has no serious bugs
@@ -226,6 +226,7 @@ class AutoML:
 
         # evaluate the TFT
         
+        print('Evaluating TFT')
         self.evaluation_results['TFT'] = {}
 
         # evaluate the models on the last max lag period
@@ -245,6 +246,7 @@ class AutoML:
 
         # LightGBM
 
+        print('Evaluating LightGBM')
         self.evaluation_results['LightGBM'] = {}
 
         # using quantile prediction as default
