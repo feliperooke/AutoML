@@ -5,5 +5,8 @@
 numpy
 pandas
 statsmodels
-scikit-learn
+scikit-learn>=0.23
 lightgbm
+torch
+pytorch-forecasting
+pytorch_lightning
