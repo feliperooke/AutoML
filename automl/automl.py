@@ -10,6 +10,7 @@ from pytorch_forecasting.metrics import QuantileLoss
 from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
 from .metrics import weighted_quantile_loss, weighted_absolute_percentage_error
 from .transformer import DataShift
+from .TFTWrapper import TFTWrapper
 
 
 class AutoML:
@@ -45,6 +46,7 @@ class AutoML:
         self.input_transformation = lambda x: x
         self.oldest_lag = 1
         self.quantiles = [.1, .5, .9]
+        self.tft_wrapper = TFTWrapper(self.quantiles)
 
         if len(self.data.columns) > 2:
             raise Exception('Data has more than 2 columns.')
@@ -86,41 +88,13 @@ class AutoML:
         self.oldest_lag = int(max(self._data_shift.past_lags)) + 1
 
         if model == 'TFT':
-            # time index are epoch values
-            # data["time_idx"] = (data[self.index_label] - pd.Timestamp("1970-01-01")) // pd.Timedelta("1s")
-            data["time_idx"] = data.index
-            data['group_id'] = 'series'
+            # return processed_data
+            self.tft_wrapper.transform_data(data,
+                        self._data_shift.past_lags,
+                        self.index_label,
+                        self.target_label)
 
-            max_prediction_length = self.oldest_lag
-            max_encoder_length = self.oldest_lag
-            training_cutoff = data["time_idx"].max() - max_prediction_length
-
-            training = TimeSeriesDataSet(
-                data[lambda x: x.time_idx <= training_cutoff],
-                time_idx="time_idx",
-                group_ids=["group_id"],
-                target=self.target_label,
-                min_encoder_length=0,
-                max_encoder_length=max_encoder_length,
-                min_prediction_length=1,
-                max_prediction_length=max_prediction_length,
-                static_categoricals=["group_id"],
-                time_varying_unknown_reals=[self.target_label],
-                # the docs says that the max_lag < max_encoder_length
-                lags={self.target_label: list(self._data_shift.past_lags[1:-1] + 1)},
-                add_relative_time_idx=True,
-                add_target_scales=True,
-                add_encoder_length=True,    
-                # allow_missings=True
-            )
-
-            # create validation set (predict=True) which means to predict the last max_prediction_length points in time
-            # for each series
-            validation = TimeSeriesDataSet.from_dataset(training, data, predict=True, stop_randomization=True)
-
-            processed_data = (training, validation)
-
-            return processed_data
+            return (self.tft_wrapper.training, self.tft_wrapper.validation)
 
         # add to the data the past lags
         data = self._data_shift.transform(data)
@@ -169,60 +143,8 @@ class AutoML:
 
         # TFT
 
-        # configure network and trainer
-        # create dataloaders for model
-        batch_size = 128
-        train_dataloader = self.training.to_dataloader(train=True, batch_size=batch_size)
-        val_dataloader = self.validation.to_dataloader(train=False, batch_size=batch_size * 10)
-
-        pl.seed_everything(42)
-
-        tft = TemporalFusionTransformer.from_dataset(
-            self.training,
-            # not meaningful for finding the learning rate but otherwise very important
-            learning_rate=0.03,
-            hidden_size=16,  # most important hyperparameter apart from learning rate
-            # number of attention heads. Set to up to 4 for large datasets
-            attention_head_size=1,
-            dropout=0.1,  # between 0.1 and 0.3 are good values
-            hidden_continuous_size=8,  # set to <= hidden_size
-            output_size=len(self.quantiles),  # 3 quantiles by default
-            loss=QuantileLoss(self.quantiles),
-            # reduce learning rate if no improvement in validation loss after x epochs
-            reduce_on_plateau_patience=4,
-        )
-
-        early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=1e-4, patience=10, verbose=False, mode="min")
-        lr_logger = LearningRateMonitor()
-
-        trainer = pl.Trainer(
-            max_epochs=25,
-            gpus=0,
-            weights_summary=None,
-            gradient_clip_val=0.1,
-            # limit_train_batches=30,  # coment in for training, running validation every 30 batches
-            # fast_dev_run=True,  # comment in to check that networkor dataset has no serious bugs
-            callbacks=[lr_logger, early_stop_callback],
-        )
-
-        tft = TemporalFusionTransformer.from_dataset(
-            self.training,
-            learning_rate=0.3,
-            hidden_size=16,
-            attention_head_size=1,
-            dropout=0.1,
-            hidden_continuous_size=8,
-            output_size=len(self.quantiles),  # 3 quantiles by default
-            loss=QuantileLoss(self.quantiles),
-            reduce_on_plateau_patience=4,
-        )
-
-        # fit network
-        trainer.fit(
-            tft,
-            train_dataloader=train_dataloader,
-            val_dataloaders=val_dataloader,
-        )
+        self.tft_wrapper.train()
+        tft = self.tft_wrapper.model
 
         # evaluate the TFT
         
@@ -317,51 +239,14 @@ class AutoML:
                                 least {self.oldest_lag} items long''')
 
         # Pre-process data
-        if isinstance(self.model, TemporalFusionTransformer):
-            time_idx = list(range(len(X))) # refact to use real time idx
-            X[self.index_label] = pd.to_datetime(X[self.index_label])
-            X[self.index_label] = X[self.index_label].dt.tz_localize(None)
-            X["time_idx"] = time_idx
-            X['group_id'] = 'series'
-
-            temp_data = self.data.iloc[-(self.oldest_lag+1):].copy()
-            
-            cur_X = temp_data.append(X, ignore_index=True)
-            time_idx = list(range(len(cur_X))) # refact to use real time idx
-            cur_X["time_idx"] = time_idx
-
-            cur_X.index = list(range(len(cur_X)))
-            
-        else:
+        if isinstance(self.model, LGBMRegressor):
             cur_X = self._data_shift.transform(X.copy())
             cur_X = cur_X[self._data_shift.past_labels].values
         y = []
 
         # Prediction
         if isinstance(self.model, TemporalFusionTransformer):
-            mode = 'quantiles' if quantile else 'prediction'
-
-            date_step = cur_X[self.index_label].iloc[-1] - cur_X[self.index_label].iloc[-2]
-            y = []
-            for _ in range(future_steps):
-                predict = self.model.predict(cur_X, mode=mode)[0][0]
-                if quantile:
-                    y.append(predict.numpy().tolist())
-                    new_value = y[-1][1] # get quantil 0.5
-                else:
-                    y.append(float(predict.numpy()))
-                    new_value = y[-1]
-
-                new_date = cur_X[self.index_label].iloc[-1] + date_step                
-
-                # auto feed the model to perform the next prediction
-                new_entry = {
-                    self.index_label: new_date,
-                    self.target_label: new_value,
-                    'time_idx': cur_X['time_idx'].iloc[-1] + 1,
-                    'group_id': 'series'
-                    }
-                cur_X = cur_X.append(new_entry, ignore_index=True)
+            y = self.tft_wrapper.predict(X, self.data, future_steps, quantile)
 
         else:
             for _ in range(future_steps):
