@@ -14,7 +14,7 @@ from .TFTWrapper import TFTWrapper
 
 
 class AutoML:
-    def __init__(self, path, jobs=0, fillnan='ffill', max_input_size=40, nlags=24):
+    def __init__(self, path, jobs=0, fillnan='ffill', nlags=24, important_future_timesteps=[1]):
         """
         AutoML is an auto machine learning project with focus on predict
         time series using simple usage and high-level understanding over
@@ -31,6 +31,11 @@ class AutoML:
             ffill: propagate last valid observation forward to next valid.
             bfill: use next valid observation to fill gap.
 
+        :param nlags: default 24
+            Maximum number of hours in the past used for each prediction
+
+        :param important_future_timesteps: default [1]
+            Timesteps in the future that will be used in model selection
         """
 
         warnings.filterwarnings('ignore')
@@ -43,10 +48,10 @@ class AutoML:
         self.data = pd.read_csv(self.path)
         self.target_label = None
         self.index_label = None
-        self.input_transformation = lambda x: x
         self.oldest_lag = 1
         self.quantiles = [.1, .5, .9]
         self.tft_wrapper = TFTWrapper(self.quantiles)
+        self.important_future_timesteps = important_future_timesteps
 
         if len(self.data.columns) > 2:
             raise Exception('Data has more than 2 columns.')
@@ -90,9 +95,9 @@ class AutoML:
         if model == 'TFT':
             # return processed_data
             self.tft_wrapper.transform_data(data,
-                        self._data_shift.past_lags,
-                        self.index_label,
-                        self.target_label)
+                                            self._data_shift.past_lags,
+                                            self.index_label,
+                                            self.target_label)
 
             return (self.tft_wrapper.training, self.tft_wrapper.validation)
 
@@ -152,7 +157,7 @@ class AutoML:
             'hidden_continuous_size': 8,
             'learning_rate': 1e-3,
             'gradient_clip_val': 0.1,
-        },{
+        }, {
             'hidden_size': 32,
             'lstm_layers': 1,
             'dropout': 0.2,
@@ -161,7 +166,7 @@ class AutoML:
             'hidden_continuous_size': 8,
             'learning_rate': 1e-2,
             'gradient_clip_val': 0.7,
-        },{
+        }, {
             'hidden_size': 64,
             'lstm_layers': 2,
             'dropout': 0.3,
@@ -170,7 +175,7 @@ class AutoML:
             'hidden_continuous_size': 16,
             'learning_rate': 1e-3,
             'gradient_clip_val': 0.7,
-        },{
+        }, {
             'hidden_size': 64,
             'lstm_layers': 2,
             'dropout': 0.3,
@@ -179,7 +184,7 @@ class AutoML:
             'hidden_continuous_size': 32,
             'learning_rate': 1e-2,
             'gradient_clip_val': 0.5,
-        },{
+        }, {
             'hidden_size': 128,
             'lstm_layers': 2,
             'dropout': 0.3,
@@ -188,7 +193,7 @@ class AutoML:
             'hidden_continuous_size': 60,
             'learning_rate': 1e-3,
             'gradient_clip_val': 0.5,
-        },]
+        }, ]
 
         print('Evaluating TFT')
 
@@ -204,7 +209,8 @@ class AutoML:
             y_val = self.y[-self.oldest_lag:]
             # default values
             y_pred = tft.predict(self.validation, mode='prediction').numpy()[0]
-            self.evaluation_results['TFT' + str(c)]['default'] = self._evaluate_model(y_val, y_pred)
+            self.evaluation_results['TFT' +
+                                    str(c)]['default'] = self._evaluate_model(y_val, y_pred)
 
             # quantile values
             y_pred = tft.predict(self.validation, mode='quantiles').numpy()[0]
@@ -214,8 +220,8 @@ class AutoML:
             for i in range(len(self.quantiles)):
                 quantile = self.quantiles[i]
                 q_pred = y_pred[:, i]
-                self.evaluation_results['TFT' + str(c)][str(quantile)] = self._evaluate_model(y_val, q_pred, quantile)
-        
+                self.evaluation_results['TFT' + str(c)][str(
+                    quantile)] = self._evaluate_model(y_val, q_pred, quantile)
 
         # LightGBM
 
@@ -227,32 +233,31 @@ class AutoML:
             'learning_rate': 0.001,
             'num_iterations': 15000,
             'n_estimators': 100,
-        },{
+        }, {
             'num_leaves': 64,
             'max_depth': 8,
             'learning_rate': 0.001,
             'num_iterations': 15000,
             'n_estimators': 200,
-        },{
+        }, {
             'num_leaves': 128,
             'max_depth': 10,
             'learning_rate': 0.001,
             'num_iterations': 15000,
             'n_estimators': 300,
-        },{
+        }, {
             'num_leaves': 128,
             'max_depth': 8,
             'learning_rate': 0.005,
             'num_iterations': 15000,
             'n_estimators': 200,
-        },{
+        }, {
             'num_leaves': 64,
             'max_depth': 10,
             'learning_rate': 0.001,
             'num_iterations': 15000,
             'n_estimators': 300,
-        },]
-
+        }, ]
 
         # using quantile prediction as default
         quantile_params = {
@@ -265,7 +270,7 @@ class AutoML:
             self.evaluation_results['LightGBM'+str(c)] = {}
 
             quantile_models = [lgb.LGBMRegressor(alpha=quantil, **params, **quantile_params)
-                            for quantil in self.quantiles]
+                               for quantil in self.quantiles]
 
             lgbm_model = lgb.LGBMRegressor(**params)  # Temp
 
@@ -299,7 +304,8 @@ class AutoML:
 
         if isinstance(self.model, LGBMRegressor):
             # train data shifted by the max lag period
-            X_train, y_train = self.X[:-self.oldest_lag], self.y[:-self.oldest_lag]
+            X_train, y_train = self.X[:-
+                                      self.oldest_lag], self.y[:-self.oldest_lag]
 
             self.model.fit(X_train, y_train)
 
@@ -311,12 +317,14 @@ class AutoML:
 
             # default model
             y_pred = self.model.predict(X_val)
-            self.evaluation_results['LightGBM'+str(idx)]['default'] = self._evaluate_model(y_val, y_pred)
+            self.evaluation_results['LightGBM' +
+                                    str(idx)]['default'] = self._evaluate_model(y_val, y_pred)
 
             # quantile models
             for quantile, model in zip(self.quantiles, self.quantile_models):
                 y_pred = model.predict(X_val)
-                self.evaluation_results['LightGBM'+str(idx)][str(quantile)] = self._evaluate_model(y_val, y_pred, quantile)
+                self.evaluation_results['LightGBM'+str(idx)][str(
+                    quantile)] = self._evaluate_model(y_val, y_pred, quantile)
 
             # return self.model, self.quantile_models
 
@@ -364,7 +372,6 @@ class AutoML:
                 else:  # predict with mean model
                     predict = self.model.predict(cur_X[-1].reshape(1, -1))
                     y.append(predict)
-                # y.append(self.model.predict(np.squeeze(self.input_transformation(cur_X[-self.oldest_lag:]))))
                 new_input = np.append(cur_X[-1][1:], predict, axis=0)
                 cur_X = np.append(cur_X, [new_input], axis=0)
 
@@ -403,8 +410,6 @@ class AutoML:
         new_data = pd.read_csv(new_data_path)
         if len(new_data.columns) > 2:
             raise Exception('Data has more than 2 columns.')
-
-        # new_data = self.input_transformation(new_data)
 
         if append:
             self.data = self.data.append(new_data, ignore_index=True)
