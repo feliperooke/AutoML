@@ -10,3 +10,4 @@ lightgbm
 torch
 pytorch-forecasting
 pytorch_lightning
+SQLAlchemy==1.3.0

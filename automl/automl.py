@@ -143,57 +143,155 @@ class AutoML:
 
         # TFT
 
-        self.tft_wrapper.train()
-        tft = self.tft_wrapper.model
+        params_list = [{
+            'hidden_size': 16,
+            'lstm_layers': 1,
+            'dropout': 0.1,
+            'attention_head_size': 1,
+            'reduce_on_plateau_patience': 4,
+            'hidden_continuous_size': 8,
+            'learning_rate': 1e-3,
+            'gradient_clip_val': 0.1,
+        },{
+            'hidden_size': 32,
+            'lstm_layers': 1,
+            'dropout': 0.2,
+            'attention_head_size': 2,
+            'reduce_on_plateau_patience': 4,
+            'hidden_continuous_size': 8,
+            'learning_rate': 1e-2,
+            'gradient_clip_val': 0.7,
+        },{
+            'hidden_size': 64,
+            'lstm_layers': 2,
+            'dropout': 0.3,
+            'attention_head_size': 3,
+            'reduce_on_plateau_patience': 4,
+            'hidden_continuous_size': 16,
+            'learning_rate': 1e-3,
+            'gradient_clip_val': 0.7,
+        },{
+            'hidden_size': 64,
+            'lstm_layers': 2,
+            'dropout': 0.3,
+            'attention_head_size': 4,
+            'reduce_on_plateau_patience': 4,
+            'hidden_continuous_size': 32,
+            'learning_rate': 1e-2,
+            'gradient_clip_val': 0.5,
+        },{
+            'hidden_size': 128,
+            'lstm_layers': 2,
+            'dropout': 0.3,
+            'attention_head_size': 4,
+            'reduce_on_plateau_patience': 4,
+            'hidden_continuous_size': 60,
+            'learning_rate': 1e-3,
+            'gradient_clip_val': 0.5,
+        },]
 
-        # evaluate the TFT
-        
         print('Evaluating TFT')
-        self.evaluation_results['TFT'] = {}
 
-        # evaluate the models on the last max lag period
-        y_val = self.y[-self.oldest_lag:]
-        # default values
-        y_pred = tft.predict(self.validation, mode='prediction').numpy()[0]
-        self.evaluation_results['TFT']['default'] = self._evaluate_model(y_val, y_pred)
+        tft_list = []
+        for c, params in enumerate(params_list):
+            self.tft_wrapper.train(max_epochs=50, **params)
+            tft = self.tft_wrapper.model
 
-        # quantile values
-        y_pred = tft.predict(self.validation, mode='quantiles').numpy()[0]
+            # evaluate the TFT
+            self.evaluation_results['TFT' + str(c)] = {}
 
-        for i in range(len(self.quantiles)):
-            quantile = self.quantiles[i]
-            q_pred = y_pred[:, i]
-            self.evaluation_results['TFT'][str(quantile)] = self._evaluate_model(y_val, q_pred, quantile)
+            # evaluate the models on the last max lag period
+            y_val = self.y[-self.oldest_lag:]
+            # default values
+            y_pred = tft.predict(self.validation, mode='prediction').numpy()[0]
+            self.evaluation_results['TFT' + str(c)]['default'] = self._evaluate_model(y_val, y_pred)
+
+            # quantile values
+            y_pred = tft.predict(self.validation, mode='quantiles').numpy()[0]
+
+            tft_list.append(tft)
+
+            for i in range(len(self.quantiles)):
+                quantile = self.quantiles[i]
+                q_pred = y_pred[:, i]
+                self.evaluation_results['TFT' + str(c)][str(quantile)] = self._evaluate_model(y_val, q_pred, quantile)
         
 
         # LightGBM
 
         print('Evaluating LightGBM')
-        self.evaluation_results['LightGBM'] = {}
+
+        lgbm_params_list = [{
+            'num_leaves': 32,
+            'max_depth': 6,
+            'learning_rate': 0.001,
+            'num_iterations': 15000,
+            'n_estimators': 100,
+        },{
+            'num_leaves': 64,
+            'max_depth': 8,
+            'learning_rate': 0.001,
+            'num_iterations': 15000,
+            'n_estimators': 200,
+        },{
+            'num_leaves': 128,
+            'max_depth': 10,
+            'learning_rate': 0.001,
+            'num_iterations': 15000,
+            'n_estimators': 300,
+        },{
+            'num_leaves': 128,
+            'max_depth': 8,
+            'learning_rate': 0.005,
+            'num_iterations': 15000,
+            'n_estimators': 200,
+        },{
+            'num_leaves': 64,
+            'max_depth': 10,
+            'learning_rate': 0.001,
+            'num_iterations': 15000,
+            'n_estimators': 300,
+        },]
+
 
         # using quantile prediction as default
         quantile_params = {
             'objective': 'quantile',
             'metric': 'quantile',
         }
-        quantile_models = [lgb.LGBMRegressor(alpha=quantil, **quantile_params)
-                           for quantil in self.quantiles]
 
-        lgbm_model = lgb.LGBMRegressor()  # Temp
+        lgbm_list = []
+        for c, params in enumerate(lgbm_params_list):
+            self.evaluation_results['LightGBM'+str(c)] = {}
 
-        self.model = lgbm_model
-        self.quantile_models = quantile_models
-        self._trainer()
+            quantile_models = [lgb.LGBMRegressor(alpha=quantil, **params, **quantile_params)
+                            for quantil in self.quantiles]
+
+            lgbm_model = lgb.LGBMRegressor(**params)  # Temp
+
+            self.model = lgbm_model
+            self.quantile_models = quantile_models
+            self._trainer(c)
+            lgbm_list.append({
+                'default': lgbm_model,
+                'quantile': quantile_models
+            })
 
         # Choose the best model comparing the default prediction metric results
-        min_metric = min([(x[0], x[1]['default']['wape']) for x in self.evaluation_results.items()])
+        wape_values = {}
+        for x in self.evaluation_results.items():
+            wape_values[x[0]] = x[1]['default']['wape']
+        min_metric = min(wape_values, key=wape_values.get)
+        print(min_metric)
+        if min_metric == 'LightGBM':
+            idx = int(min_metric[-1])
+            self.model = lgbm_list[idx]['default']
+            self.quantile_models = lgbm_list[idx]['quantile']
+        elif 'TFT' in min_metric:
+            idx = int(min_metric[-1])
+            self.model = tft_list[idx]
 
-        if min_metric[0] == 'LightGBM':
-            self.model = lgbm_model
-        elif min_metric[0] == 'TFT':
-            self.model = tft
-
-    def _trainer(self):
+    def _trainer(self, idx=0):
         """
         Train the chosen model and evaluate the final result.
 
@@ -213,12 +311,14 @@ class AutoML:
 
             # default model
             y_pred = self.model.predict(X_val)
-            self.evaluation_results['LightGBM']['default'] = self._evaluate_model(y_val, y_pred)
+            self.evaluation_results['LightGBM'+str(idx)]['default'] = self._evaluate_model(y_val, y_pred)
 
             # quantile models
             for quantile, model in zip(self.quantiles, self.quantile_models):
                 y_pred = model.predict(X_val)
-                self.evaluation_results['LightGBM'][str(quantile)] = self._evaluate_model(y_val, y_pred, quantile)
+                self.evaluation_results['LightGBM'+str(idx)][str(quantile)] = self._evaluate_model(y_val, y_pred, quantile)
+
+            # return self.model, self.quantile_models
 
     def predict(self, X, future_steps, quantile=False):
         """

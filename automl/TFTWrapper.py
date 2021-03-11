@@ -2,7 +2,6 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor
 from pytorch_forecasting.metrics import QuantileLoss
 from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
-from pytorch_forecasting.models.temporal_fusion_transformer.tuning import optimize_hyperparameters
 import pandas as pd
 
 class TFTWrapper:
@@ -74,7 +73,7 @@ class TFTWrapper:
         pl.seed_everything(42)
 
         early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=1e-4, patience=10, verbose=False, mode="min")
-        lr_logger = LearningRateMonitor()
+        # lr_logger = LearningRateMonitor()
 
         trainer = pl.Trainer(
             max_epochs=max_epochs,
@@ -83,7 +82,7 @@ class TFTWrapper:
             gradient_clip_val=gradient_clip_val,
             # limit_train_batches=30,  # coment in for training, running validation every 30 batches
             # fast_dev_run=True,  # comment in to check that networkor dataset has no serious bugs
-            callbacks=[lr_logger, early_stop_callback],
+            callbacks=[early_stop_callback],
         )
 
         self.model = TemporalFusionTransformer.from_dataset(
@@ -99,25 +98,25 @@ class TFTWrapper:
             reduce_on_plateau_patience=reduce_on_plateau_patience,
         )
 
-        res = trainer.tuner.lr_find(
-            self.model,
-            train_dataloader=train_dataloader,
-            val_dataloaders=val_dataloader,
-            max_lr=10.0,
-            min_lr=1e-6,
-        )
+        # res = trainer.tuner.lr_find(
+        #     self.model,
+        #     train_dataloader=train_dataloader,
+        #     val_dataloaders=val_dataloader,
+        #     max_lr=10.0,
+        #     min_lr=1e-6,
+        # )
 
-        self.model = TemporalFusionTransformer.from_dataset(
-            self.training,
-            learning_rate=res.suggestion(), # using the suggested learining rate
-            hidden_size=hidden_size,
-            attention_head_size=attention_head_size,
-            dropout=dropout,
-            hidden_continuous_size=hidden_continuous_size,
-            output_size=len(self.quantiles),  # 3 quantiles by default
-            loss=QuantileLoss(self.quantiles),
-            reduce_on_plateau_patience=reduce_on_plateau_patience,
-        )
+        # self.model = TemporalFusionTransformer.from_dataset(
+        #     self.training,
+        #     learning_rate=res.suggestion(), # using the suggested learining rate
+        #     hidden_size=hidden_size,
+        #     attention_head_size=attention_head_size,
+        #     dropout=dropout,
+        #     hidden_continuous_size=hidden_continuous_size,
+        #     output_size=len(self.quantiles),  # 3 quantiles by default
+        #     loss=QuantileLoss(self.quantiles),
+        #     reduce_on_plateau_patience=reduce_on_plateau_patience,
+        # )
 
         # fit network
         trainer.fit(
