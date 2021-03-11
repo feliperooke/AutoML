@@ -146,6 +146,16 @@ class AutoML:
         """
         # Vamos fazer com os modelos sempre usando a api do Scikit Learn pq a gnt vai usar ele para o RandomSearch
 
+        # creating the validation matrix
+        y_val_t1 = np.array(self.y[-self.oldest_lag:])
+        y_val = []
+
+        for n in self.important_future_timesteps:
+            y_val.append(np.roll(y_val_t1, -(n - 1)))
+
+        y_val = np.array(y_val)[
+            :-(max(self.important_future_timesteps) - 1)]
+
         # TFT
 
         params_list = [{
@@ -203,29 +213,17 @@ class AutoML:
             # evaluate the TFT
             self.evaluation_results['TFT' + str(c)] = {}
 
-            # evaluate the models on the last max lag period
-
-            # creating the validation matrix
-            y_val_t1 = np.array(self.y[-self.oldest_lag:])
-            y_val = []
-
-            for n in self.important_future_timesteps:
-                y_val.append(np.roll(y_val_t1, -(n - 1)))
-
-            y_val = np.array(y_val)[
-                :-(max(self.important_future_timesteps) - 1)]
-
             # default values
             y_pred = np.array(self.tft_wrapper.predict(
                 self.validation, max(self.important_future_timesteps)))[:, [[n-1 for n in self.important_future_timesteps]]]
-
+            # TODO: Esse y_pred está na shape [instancia, timestamp] após a correção
             self.evaluation_results['TFT' +
                                     str(c)]['default'] = self._evaluate_model(y_val, y_pred)
 
             # quantile values
-            y_pred = np.array(self.tft_wrapper.predict(
+            q_pred = np.array(self.tft_wrapper.predict(
                 self.validation, max(self.important_future_timesteps), quantile=True))[:, [[n-1 for n in self.important_future_timesteps]], :]
-
+            # TODO: Esse y_pred está na shape [instancia, timestamp, quantile] após a correção
             tft_list.append(self.tft_wrapper.model)
 
             for i in range(len(self.quantiles)):
@@ -279,11 +277,20 @@ class AutoML:
         lgbm_list = []
         for c, params in enumerate(lgbm_params_list):
             self.evaluation_results['LightGBM'+str(c)] = {}
-
+            # TODO: Colocar o LightGBM em um wrapper e ajeitar isso
             quantile_models = [lgb.LGBMRegressor(alpha=quantil, **params, **quantile_params)
                                for quantil in self.quantiles]
 
+            # for i in range(len(self.quantiles)):
+            #     quantile = self.quantiles[i]
+            #     q_pred = y_pred[:, i]
+            #     self.evaluation_results['LightGBM' + str(c)][str(
+            #         quantile)] = self._evaluate_model(y_val, q_pred, quantile)
+
             lgbm_model = lgb.LGBMRegressor(**params)  # Temp
+
+            # self.evaluation_results['LightGBM' +
+            #                         str(c)]['default'] = self._evaluate_model(y_val, y_pred)
 
             self.model = lgbm_model
             self.quantile_models = quantile_models
