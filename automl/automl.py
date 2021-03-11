@@ -200,22 +200,33 @@ class AutoML:
         tft_list = []
         for c, params in enumerate(params_list):
             self.tft_wrapper.train(max_epochs=50, **params)
-            tft = self.tft_wrapper.model
-
             # evaluate the TFT
             self.evaluation_results['TFT' + str(c)] = {}
 
             # evaluate the models on the last max lag period
-            y_val = self.y[-self.oldest_lag:]
+
+            # creating the validation matrix
+            y_val_t1 = np.array(self.y[-self.oldest_lag:])
+            y_val = []
+
+            for n in self.important_future_timesteps:
+                y_val.append(np.roll(y_val_t1, -(n - 1)))
+
+            y_val = np.array(y_val)[
+                :-(max(self.important_future_timesteps) - 1)]
+
             # default values
-            y_pred = tft.predict(self.validation, mode='prediction').numpy()[0]
+            y_pred = np.array(self.tft_wrapper.predict(
+                self.validation, max(self.important_future_timesteps)))[:, [[n-1 for n in self.important_future_timesteps]]]
+
             self.evaluation_results['TFT' +
                                     str(c)]['default'] = self._evaluate_model(y_val, y_pred)
 
             # quantile values
-            y_pred = tft.predict(self.validation, mode='quantiles').numpy()[0]
+            y_pred = np.array(self.tft_wrapper.predict(
+                self.validation, max(self.important_future_timesteps), quantile=True))[:, [[n-1 for n in self.important_future_timesteps]], :]
 
-            tft_list.append(tft)
+            tft_list.append(self.tft_wrapper.model)
 
             for i in range(len(self.quantiles)):
                 quantile = self.quantiles[i]
