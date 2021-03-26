@@ -3,8 +3,9 @@ from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor
 from pytorch_forecasting.metrics import QuantileLoss
 from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
 import pandas as pd
+from .BaseWrapper import BaseWrapper
 
-class TFTWrapper:
+class TFTWrapper(BaseWrapper):
     def __init__(self, quantiles):
         self.training = None
         self.validation = None
