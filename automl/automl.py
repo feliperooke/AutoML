@@ -11,6 +11,7 @@ from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
 from .metrics import weighted_quantile_loss, weighted_absolute_percentage_error
 from .transformer import DataShift
 from .wrappers.TFTWrapper import TFTWrapper
+from .wrappers.LightGBMWrapper import LightGBMWrapper
 
 
 class AutoML:
@@ -51,6 +52,7 @@ class AutoML:
         self.oldest_lag = 1
         self.quantiles = [.1, .5, .9]
         self.tft_wrapper = TFTWrapper(self.quantiles)
+        self.lightgbm_wrapper = LightGBMWrapper(self.quantiles)
         self.important_future_timesteps = important_future_timesteps
 
         if len(self.data.columns) > 2:
@@ -105,18 +107,13 @@ class AutoML:
         data = self._data_shift.transform(data)
         past_labels = self._data_shift.past_labels
 
-        x = None
-        y = None
-        x_labels = past_labels  # incluir index_labels em alguns modelos
-
         # adapt the data to the chosen model
         if model == 'lightgbm':
-            x = data[x_labels]
-            y = data[self.target_label]
-
-            processed_data = (x, y)
-
-        return processed_data
+            self.lightgbm_wrapper.transform_data(data,
+                                                 self._data_shift.past_labels,
+                                                 self.index_label,
+                                                 self.target_label)
+            return (self.lightgbm_wrapper.training, self.lightgbm_wrapper.validation)
 
     def _evaluate_model(self, y_val, y_pred, quantile=None):
         """
