@@ -7,14 +7,15 @@ class LightGBMWrapper(BaseWrapper):
     def __init__(self, quantiles):
         super.__init__(quantiles)
 
-    def transform_data(self, data, past_lags, index_label, target_label):
+    def transform_data(self, data, past_labels, index_label, target_label):
         self.data = data
-        self.past_lags = past_lags
+        self.past_labels = past_labels
         self.oldest_lag = int(max(self.past_lags)) + 1
         self.index_label = index_label
         self.target_label = target_label
+        self.last_x = data.drop(target_label, axis=1).iloc[-1, :].values
 
-        X = data[past_lags]
+        X = data[past_labels]
         y = data[target_label]
 
         X_train, X_test, y_train, y_test = train_test_split(
@@ -23,20 +24,59 @@ class LightGBMWrapper(BaseWrapper):
         self.training = (X_train, y_train)
         self.validation = (X_test, y_test)
 
-    def train(self, model_params, is_quantile=False):
-        if(is_quantile):
-            self.model = [lgb.LGBMRegressor(alpha=quantil, **model_params)
-                          for quantil in self.quantiles]
+    def train(self, model_params, quantile_params):
 
-            for qmodel in self.model:
-                qmodel.fit(self.training[0], self.training[1])
+        self.qmodels = [lgb.LGBMRegressor(alpha=quantil, **model_params, **quantile_params)
+                        for quantil in self.quantiles]
 
-        else:
-            self.model = lgb.LGBMRegressor(**params)
-            self.model.fit(self.training[0], self.training[1])
+        for qmodel in self.qmodels:
+            qmodel.fit(self.training[0], self.training[1])
+
+        self.model = lgb.LGBMRegressor(**model_params)
+        self.model.fit(self.training[0], self.training[1])
 
     def predict(self, X, future_steps, quantile=False):
-        pass
+        """
+        Uses the input "X" to predict "future_steps" steps into the future for each os the instances in "X".
+
+        :param X:
+            Numpy array to make a prediction with, the shape of the input is (instances, steps).
+
+        :param future_steps:
+            Number of steps in the future to predict.
+
+        :param quantile:
+            Use quantile models instead of the mean based.
+
+        """
+        if(X.shape[1] < self.oldest_lag):
+            raise Exception(
+                f'''Error, to make a prediction X needs to have shape (n, {self.oldest_lag})''')
+
+        Y_hat = np.zeros(X.size[0], future_steps, len(
+            self.quantiles)) if quantile else np.array(X.size[0], future_steps)
+
+        if quantile:
+            for i, x in enumerate(X):
+                cur_x = x.copy()
+                for step in range(future_steps):
+                    for qmodel in enumerate(self.qmodels):
+                        cur_y_hat = self.qmodel.predict(cur_x[past_labels])
+                        Y_hat[i, step, ] = cur_y_hat
+                    new_x = self.model.predict(cur_x[past_labels])
+                    cur_x = np.roll(cur_x, -1)
+                    cur_x[-1] = new_x
+
+        else:
+            for i, x in enumerate(X):
+                cur_x = x.copy()
+                for step in range(future_steps):
+                    cur_y_hat = self.model.predict(cur_x[past_labels])
+                    Y_hat[i, step] = cur_y_hat
+                    cur_x = np.roll(cur_x, -1)
+                    cur_x[-1] = cur_y_hat
+
+        return Y_hat
 
     def next(self, future_steps, quantile=False):
-        pass
+        return self.predict(self.last_x, future_steps, quantile=quantile)
