@@ -10,7 +10,7 @@ from pytorch_forecasting.metrics import QuantileLoss
 from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
 from .metrics import weighted_quantile_loss, weighted_absolute_percentage_error
 from .transformer import DataShift
-from .TFTWrapper import TFTWrapper
+from .wrappers.TFTWrapper import TFTWrapper
 
 
 class AutoML:
