@@ -274,15 +274,13 @@ class AutoML:
         lgbm_list = []
         for c, params in enumerate(lgbm_params_list):
             self.evaluation_results['LightGBM'+str(c)] = {}
-            this.lightgbm_wrapper.train(is_quantile=True, {**params, **quantile_params})
+            self.lightgbm_wrapper.train(params, quantile_params)
 
             # for i in range(len(self.quantiles)):
             #     quantile = self.quantiles[i]
             #     q_pred = y_pred[:, i]
             #     self.evaluation_results['LightGBM' + str(c)][str(
             #         quantile)] = self._evaluate_model(y_val, q_pred, quantile)
-
-            this.lightgbm_wrapper.train(**params)
 
             # self.evaluation_results['LightGBM' +
             #                         str(c)]['default'] = self._evaluate_model(y_val, y_pred)
