@@ -274,9 +274,7 @@ class AutoML:
         lgbm_list = []
         for c, params in enumerate(lgbm_params_list):
             self.evaluation_results['LightGBM'+str(c)] = {}
-            # TODO: Colocar o LightGBM em um wrapper e ajeitar isso
-            quantile_models = [lgb.LGBMRegressor(alpha=quantil, **params, **quantile_params)
-                               for quantil in self.quantiles]
+            this.lightgbm_wrapper.train(is_quantile=True, {**params, **quantile_params})
 
             # for i in range(len(self.quantiles)):
             #     quantile = self.quantiles[i]
@@ -284,7 +282,7 @@ class AutoML:
             #     self.evaluation_results['LightGBM' + str(c)][str(
             #         quantile)] = self._evaluate_model(y_val, q_pred, quantile)
 
-            lgbm_model = lgb.LGBMRegressor(**params)  # Temp
+            this.lightgbm_wrapper.train(**params)
 
             # self.evaluation_results['LightGBM' +
             #                         str(c)]['default'] = self._evaluate_model(y_val, y_pred)
