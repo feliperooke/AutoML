@@ -7,7 +7,7 @@ class LightGBMWrapper(BaseWrapper):
     def __init__(self, quantiles):
         super.__init__(quantiles)
 
-    def transform_data(self, data, past_labels, index_label, target_label):
+    def transform_data(self, data, past_labels, index_label, target_label, train_val_split):
         self.data = data
         self.past_labels = past_labels
         self.oldest_lag = int(max(self.past_lags)) + 1
@@ -19,7 +19,7 @@ class LightGBMWrapper(BaseWrapper):
         y = data[target_label]
 
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2)
+            X, y, train_size=train_test_split, shuffle=False)
 
         self.training = (X_train, y_train)
         self.validation = (X_test, y_test)

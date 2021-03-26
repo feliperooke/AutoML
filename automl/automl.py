@@ -112,7 +112,7 @@ class AutoML:
             self.lightgbm_wrapper.transform_data(data,
                                                  self._data_shift.past_labels,
                                                  self.index_label,
-                                                 self.target_label)
+                                                 self.target_label, self.train_val_split)
             return (self.lightgbm_wrapper.training, self.lightgbm_wrapper.validation)
 
     def _evaluate_model(self, y_val, y_pred, quantile=None):
@@ -276,22 +276,24 @@ class AutoML:
             self.evaluation_results['LightGBM'+str(c)] = {}
             self.lightgbm_wrapper.train(params, quantile_params)
 
+            # # TODO: Adapte isso para o lightgbmwrapper
+            # y_pred = np.array(self.lightgbm_wrapper.predict(
+            #     self.validation, max(self.important_future_timesteps)))[:, [[n-1 for n in self.important_future_timesteps]]]
+            # # TODO: Esse y_pred está na shape [instancia, timestamp] após a correção
+            # self.evaluation_results['TFT' +
+            #                         str(c)]['default'] = self._evaluate_model(y_val, y_pred)
+
+            # # quantile values
+            # q_pred = np.array(self.tft_wrapper.predict(
+            #     self.validation, max(self.important_future_timesteps), quantile=True))[:, [[n-1 for n in self.important_future_timesteps]], :]
+            # # TODO: Esse y_pred está na shape [instancia, timestamp, quantile] após a correção
+            # tft_list.append(self.tft_wrapper.model)
+
             # for i in range(len(self.quantiles)):
             #     quantile = self.quantiles[i]
             #     q_pred = y_pred[:, i]
-            #     self.evaluation_results['LightGBM' + str(c)][str(
+            #     self.evaluation_results['TFT' + str(c)][str(
             #         quantile)] = self._evaluate_model(y_val, q_pred, quantile)
-
-            # self.evaluation_results['LightGBM' +
-            #                         str(c)]['default'] = self._evaluate_model(y_val, y_pred)
-
-            self.model = lgbm_model
-            self.quantile_models = quantile_models
-            self._trainer(c)
-            lgbm_list.append({
-                'default': lgbm_model,
-                'quantile': quantile_models
-            })
 
         # Choose the best model comparing the default prediction metric results
         wape_values = {}
