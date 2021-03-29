@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name='automl',
-    packages=find_packages(include=['automl']),
+    packages=find_packages(include=['automl', 'automl.wrappers']),
     install_requires=[
         'numpy',
         'pandas',
