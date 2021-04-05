@@ -5,6 +5,7 @@ from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
 import pandas as pd
 from .BaseWrapper import BaseWrapper
 
+
 class TFTWrapper(BaseWrapper):
     def __init__(self, quantiles):
         self.training = None
@@ -12,6 +13,7 @@ class TFTWrapper(BaseWrapper):
         self.model = None
         self.trainer = None
         self.oldest_lag = None
+        self.last_period = None
         self.quantiles = quantiles
 
     def transform_data(self, data, past_lags, index_label, target_label):
@@ -45,35 +47,41 @@ class TFTWrapper(BaseWrapper):
             lags={self.target_label: list(self.past_lags[1:-1] + 1)},
             add_relative_time_idx=True,
             add_target_scales=True,
-            add_encoder_length=True,    
+            add_encoder_length=True,
             # allow_missings=True
         )
 
         # create validation set (predict=True) which means to predict the last max_prediction_length points in time
         # for each series
-        self.validation = TimeSeriesDataSet.from_dataset(self.training, data, predict=True, stop_randomization=True)
+        self.validation = TimeSeriesDataSet.from_dataset(
+            self.training, data, predict=True, stop_randomization=True)
 
+        # store the last input to use as encoder data to some predictions
+        self.last_period = data.iloc[-(self.oldest_lag*2+1):].copy()
 
     def train(self,
-        max_epochs=25, 
-        hidden_size = 16,
-        lstm_layers = 1,
-        dropout = 0.1,
-        attention_head_size = 4,
-        reduce_on_plateau_patience=4,
-        hidden_continuous_size = 8,
-        learning_rate = 1e-3,
-        gradient_clip_val = 0.1,
-        ):
+              max_epochs=25,
+              hidden_size=16,
+              lstm_layers=1,
+              dropout=0.1,
+              attention_head_size=4,
+              reduce_on_plateau_patience=4,
+              hidden_continuous_size=8,
+              learning_rate=1e-3,
+              gradient_clip_val=0.1,
+              ):
         # configure network and trainer
         # create dataloaders for model
         batch_size = 128
-        train_dataloader = self.training.to_dataloader(train=True, batch_size=batch_size)
-        val_dataloader = self.validation.to_dataloader(train=False, batch_size=batch_size * 10)
+        train_dataloader = self.training.to_dataloader(
+            train=True, batch_size=batch_size)
+        val_dataloader = self.validation.to_dataloader(
+            train=False, batch_size=batch_size * 10)
 
         pl.seed_everything(42)
 
-        early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=1e-4, patience=10, verbose=False, mode="min")
+        early_stop_callback = EarlyStopping(
+            monitor="val_loss", min_delta=1e-4, patience=10, verbose=False, mode="min")
         # lr_logger = LearningRateMonitor()
 
         trainer = pl.Trainer(
@@ -93,7 +101,7 @@ class TFTWrapper(BaseWrapper):
             attention_head_size=attention_head_size,
             dropout=dropout,
             hidden_continuous_size=hidden_continuous_size,
-            lstm_layers = lstm_layers,
+            lstm_layers=lstm_layers,
             output_size=len(self.quantiles),  # 3 quantiles by default
             loss=QuantileLoss(self.quantiles),
             reduce_on_plateau_patience=reduce_on_plateau_patience,
@@ -126,40 +134,31 @@ class TFTWrapper(BaseWrapper):
             val_dataloaders=val_dataloader,
         )
 
-    def predict(self, X, previous_data, future_steps, quantile=False):
+    def _auto_feed(self, X, future_steps, quantile=False):
+        """
+        Perform autofeed over the X values to predict the futures steps.
+        """
 
-        # pre-process the data
-        time_idx = list(range(len(X))) # refact to use real time idx
-        X[self.index_label] = pd.to_datetime(X[self.index_label])
-        X[self.index_label] = X[self.index_label].dt.tz_localize(None)
-        X["time_idx"] = time_idx
-        X['group_id'] = 'series'
-
-        temp_data = previous_data.iloc[-(self.oldest_lag+1):].copy()
-        
-        cur_X = temp_data.append(X, ignore_index=True)
-        time_idx = list(range(len(cur_X))) # refact to use real time idx
-        cur_X["time_idx"] = time_idx
-
-        cur_X.index = list(range(len(cur_X)))
-
+        # prediction or quantile mode
         mode = 'quantiles' if quantile else 'prediction'
 
         # interval between dates (last two dates in the dataset)
-        date_step = cur_X[self.index_label].iloc[-1] - cur_X[self.index_label].iloc[-2]
-        
+        cur_X = X.copy()
+        date_step = cur_X[self.index_label].iloc[-1] - \
+            cur_X[self.index_label].iloc[-2]
+
         y = []
-        
+
         for _ in range(future_steps):
             predict = self.model.predict(cur_X, mode=mode)[0][0]
             if quantile:
                 y.append(predict.numpy().tolist())
-                new_value = y[-1][1] # get quantil 0.5
+                new_value = y[-1][1]  # get quantil 0.5
             else:
                 y.append(float(predict.numpy()))
                 new_value = y[-1]
 
-            new_date = cur_X[self.index_label].iloc[-1] + date_step                
+            new_date = cur_X[self.index_label].iloc[-1] + date_step
 
             # auto feed the model to perform the next prediction
             new_entry = {
@@ -167,7 +166,44 @@ class TFTWrapper(BaseWrapper):
                 self.target_label: new_value,
                 'time_idx': cur_X['time_idx'].iloc[-1] + 1,
                 'group_id': 'series'
-                }
+            }
             cur_X = cur_X.append(new_entry, ignore_index=True)
+
+        return y
+
+    def predict(self, X, future_steps, quantile=False):
+        predictions = []
+        for i in range(len(X)):
+            X_temp = self.last_period[-(self.oldest_lag*2-i):].append(X.iloc[:i], ignore_index=True)
+            time_idx = list(range(len(X_temp)))  # refact to use real time idx
+            time_idx = [idx + self.last_period["time_idx"].max()
+                        for idx in time_idx]
+            X_temp[self.index_label] = pd.to_datetime(X_temp[self.index_label])
+            X_temp[self.index_label] = X_temp[self.index_label].dt.tz_localize(
+                None)
+            X_temp["time_idx"] = time_idx
+            X_temp['group_id'] = 'series'
+
+            y = self._auto_feed(X_temp, future_steps, quantile)
+            predictions.append(y)
+
+        return predictions
+
+    def next(self, X, future_steps, quantile=False):
+
+        # pre-process the data
+        X[self.index_label] = pd.to_datetime(X[self.index_label])
+        X[self.index_label] = X[self.index_label].dt.tz_localize(None)
+        X['group_id'] = 'series'
+
+        temp_data = self.last_period.iloc[-(self.oldest_lag+1):].copy()
+
+        cur_X = temp_data.append(X, ignore_index=True)
+        time_idx = list(range(len(cur_X)))  # refact to use real time idx
+        cur_X["time_idx"] = time_idx
+
+        cur_X.index = list(range(len(cur_X)))
+
+        y = self._auto_feed(cur_X, future_steps, quantile)
 
         return y
