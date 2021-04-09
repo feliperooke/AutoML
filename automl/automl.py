@@ -143,15 +143,16 @@ class AutoML:
         """
         # Vamos fazer com os modelos sempre usando a api do Scikit Learn pq a gnt vai usar ele para o RandomSearch
 
-        # creating the validation matrix
-        y_val_t1 = np.array(self.y[-self.oldest_lag:])
-        y_val = []
+        # function creating the validation matrix
+        def create_validation_matrix(val_y):
+            y_val_t1 = np.array(val_y[-self.oldest_lag:])
+            y_val = []
 
-        for n in self.important_future_timesteps:
-            y_val.append(np.roll(y_val_t1, -(n - 1)))
+            for n in self.important_future_timesteps:
+                y_val.append(np.roll(y_val_t1, -(n - 1)))
 
-        y_val = np.array(y_val)[
-            :-(max(self.important_future_timesteps) - 1)]
+            y_val = np.array(y_val)[
+                :-(max(self.important_future_timesteps) - 1)]
 
         # TFT
 
