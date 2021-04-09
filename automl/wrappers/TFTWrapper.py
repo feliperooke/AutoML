@@ -14,6 +14,8 @@ class TFTWrapper(BaseWrapper):
         self.model = None
         self.trainer = None
         self.oldest_lag = None
+        self.last_period = None
+        self.quantiles = quantiles
 
     def transform_data(self, data, past_lags, index_label, target_label):
 
@@ -54,6 +56,9 @@ class TFTWrapper(BaseWrapper):
         # for each series
         self.validation = TimeSeriesDataSet.from_dataset(
             self.training, data, predict=True, stop_randomization=True)
+
+        # store the last input to use as encoder data to some predictions
+        self.last_period = data.iloc[-(self.oldest_lag*2+1):].copy()
 
     def train(self,
               max_epochs=25,
@@ -130,26 +135,16 @@ class TFTWrapper(BaseWrapper):
             val_dataloaders=val_dataloader,
         )
 
-    def predict(self, X, previous_data, future_steps, quantile=False):
+    def _auto_feed(self, X, future_steps, quantile=False):
+        """
+        Perform autofeed over the X values to predict the futures steps.
+        """
 
-        # pre-process the data
-        time_idx = list(range(len(X)))  # refact to use real time idx
-        X[self.index_label] = pd.to_datetime(X[self.index_label])
-        X[self.index_label] = X[self.index_label].dt.tz_localize(None)
-        X["time_idx"] = time_idx
-        X['group_id'] = 'series'
-
-        temp_data = previous_data.iloc[-(self.oldest_lag+1):].copy()
-
-        cur_X = temp_data.append(X, ignore_index=True)
-        time_idx = list(range(len(cur_X)))  # refact to use real time idx
-        cur_X["time_idx"] = time_idx
-
-        cur_X.index = list(range(len(cur_X)))
-
+        # prediction or quantile mode
         mode = 'quantiles' if quantile else 'prediction'
 
         # interval between dates (last two dates in the dataset)
+        cur_X = X.copy()
         date_step = cur_X[self.index_label].iloc[-1] - \
             cur_X[self.index_label].iloc[-2]
 
@@ -174,5 +169,42 @@ class TFTWrapper(BaseWrapper):
                 'group_id': 'series'
             }
             cur_X = cur_X.append(new_entry, ignore_index=True)
+
+        return y
+
+    def predict(self, X, future_steps, quantile=False):
+        predictions = []
+        for i in range(len(X)):
+            X_temp = self.last_period[-(self.oldest_lag*2-i):].append(X.iloc[:i], ignore_index=True)
+            time_idx = list(range(len(X_temp)))  # refact to use real time idx
+            time_idx = [idx + self.last_period["time_idx"].max()
+                        for idx in time_idx]
+            X_temp[self.index_label] = pd.to_datetime(X_temp[self.index_label])
+            X_temp[self.index_label] = X_temp[self.index_label].dt.tz_localize(
+                None)
+            X_temp["time_idx"] = time_idx
+            X_temp['group_id'] = 'series'
+
+            y = self._auto_feed(X_temp, future_steps, quantile)
+            predictions.append(y)
+
+        return predictions
+
+    def next(self, X, future_steps, quantile=False):
+
+        # pre-process the data
+        X[self.index_label] = pd.to_datetime(X[self.index_label])
+        X[self.index_label] = X[self.index_label].dt.tz_localize(None)
+        X['group_id'] = 'series'
+
+        temp_data = self.last_period.iloc[-(self.oldest_lag+1):].copy()
+
+        cur_X = temp_data.append(X, ignore_index=True)
+        time_idx = list(range(len(cur_X)))  # refact to use real time idx
+        cur_X["time_idx"] = time_idx
+
+        cur_X.index = list(range(len(cur_X)))
+
+        y = self._auto_feed(cur_X, future_steps, quantile)
 
         return y

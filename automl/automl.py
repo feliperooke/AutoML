@@ -367,7 +367,7 @@ class AutoML:
 
         # Prediction
         if isinstance(self.model, TemporalFusionTransformer):
-            y = self.tft_wrapper.predict(X, self.data, future_steps, quantile)
+            y = self.tft_wrapper.predict(X, future_steps, quantile)
 
         else:
             for _ in range(future_steps):
@@ -402,7 +402,7 @@ class AutoML:
 
         """
         if isinstance(self.model, TemporalFusionTransformer):
-            return self.predict(self.data, future_steps, quantile=quantile)
+            return self.tft_wrapper.next(X=self.data, future_steps=future_steps, quantile=quantile)
         else:
             return self.predict(self.data, future_steps, quantile=quantile)
 
