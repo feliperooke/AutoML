@@ -15,7 +15,7 @@ from .wrappers.LightGBMWrapper import LightGBMWrapper
 
 
 class AutoML:
-    def __init__(self, path, jobs=0, fillnan='ffill', nlags=24, important_future_timesteps=[1]):
+    def __init__(self, path, jobs=0, fillnan='ffill', nlags=24, important_future_timesteps=[1], train_val_split=0.8):
         """
         AutoML is an auto machine learning project with focus on predict
         time series using simple usage and high-level understanding over
@@ -50,6 +50,7 @@ class AutoML:
         self.target_label = None
         self.index_label = None
         self.oldest_lag = 1
+        self.train_val_split = train_val_split
         self.quantiles = [.1, .5, .9]
         self.tft_wrapper = TFTWrapper(self.quantiles)
         self.lightgbm_wrapper = LightGBMWrapper(self.quantiles)
@@ -145,14 +146,13 @@ class AutoML:
 
         # function creating the validation matrix
         def create_validation_matrix(val_y):
-            y_val_t1 = np.array(val_y[-self.oldest_lag:])
             y_val = []
 
             for n in self.important_future_timesteps:
-                y_val.append(np.roll(y_val_t1, -(n - 1)))
+                y_val.append(np.roll(val_y, -(n - 1)))
 
-            y_val = np.array(y_val)[
-                :-(max(self.important_future_timesteps) - 1)]
+            return np.array(y_val)[:,
+                                   :-(max(self.important_future_timesteps) - 1)]
 
         # TFT
 
@@ -273,28 +273,30 @@ class AutoML:
         }
 
         lgbm_list = []
+        y_val_matrix = create_validation_matrix(
+            self.lightgbm_wrapper.validation[1])
         for c, params in enumerate(lgbm_params_list):
             self.evaluation_results['LightGBM'+str(c)] = {}
             self.lightgbm_wrapper.train(params, quantile_params)
 
-            # # TODO: Adapte isso para o lightgbmwrapper
-            # y_pred = np.array(self.lightgbm_wrapper.predict(
-            #     self.validation, max(self.important_future_timesteps)))[:, [[n-1 for n in self.important_future_timesteps]]]
-            # # TODO: Esse y_pred está na shape [instancia, timestamp] após a correção
-            # self.evaluation_results['TFT' +
-            #                         str(c)]['default'] = self._evaluate_model(y_val, y_pred)
+            y_pred = np.array(self.lightgbm_wrapper.predict(
+                self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps)))[:, [[-(n-1) for n in self.important_future_timesteps]]]
 
-            # # quantile values
-            # q_pred = np.array(self.tft_wrapper.predict(
-            #     self.validation, max(self.important_future_timesteps), quantile=True))[:, [[n-1 for n in self.important_future_timesteps]], :]
-            # # TODO: Esse y_pred está na shape [instancia, timestamp, quantile] após a correção
-            # tft_list.append(self.tft_wrapper.model)
+            self.evaluation_results['LightGBM' +
+                                    str(c)]['default'] = self._evaluate_model(create_validation_matrix(y_val_matrix), y_pred)
 
-            # for i in range(len(self.quantiles)):
-            #     quantile = self.quantiles[i]
-            #     q_pred = y_pred[:, i]
-            #     self.evaluation_results['TFT' + str(c)][str(
-            #         quantile)] = self._evaluate_model(y_val, q_pred, quantile)
+            # quantile values
+            q_pred = np.array(self.tft_wrapper.predict(
+                self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps), quantile=True))[:, [[-(n-1) for n in self.important_future_timesteps]], :]
+
+            for i in range(len(self.quantiles)):
+                quantile = self.quantiles[i]
+                q_pred = y_pred[:, :, i]
+                self.evaluation_results['LightGBM' + str(c)][str(
+                    quantile)] = self._evaluate_model(create_validation_matrix(y_val_matrix), q_pred, quantile)
+
+            lgbm_list.append({'default': self.lightgbm_wrapper.model,
+                              'quantile': self.lightgbm_wrapper.qmodels})
 
         # Choose the best model comparing the default prediction metric results
         wape_values = {}
@@ -302,7 +304,7 @@ class AutoML:
             wape_values[x[0]] = x[1]['default']['wape']
         min_metric = min(wape_values, key=wape_values.get)
         print(min_metric)
-        if min_metric == 'LightGBM':
+        if 'LightGBM' in min_metric:
             idx = int(min_metric[-1])
             self.model = lgbm_list[idx]['default']
             self.quantile_models = lgbm_list[idx]['quantile']

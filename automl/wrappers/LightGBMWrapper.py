@@ -1,4 +1,5 @@
 from .BaseWrapper import BaseWrapper
+import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import train_test_split
 
@@ -10,7 +11,7 @@ class LightGBMWrapper(BaseWrapper):
     def transform_data(self, data, past_labels, index_label, target_label, train_val_split):
         self.data = data
         self.past_labels = past_labels
-        self.oldest_lag = int(max(self.past_lags)) + 1
+        self.oldest_lag = int(max(self.past_labels)) + 1
         self.index_label = index_label
         self.target_label = target_label
         self.last_x = data.drop(target_label, axis=1).iloc[-1, :].values
@@ -61,9 +62,10 @@ class LightGBMWrapper(BaseWrapper):
                 cur_x = x.copy()
                 for step in range(future_steps):
                     for qmodel in enumerate(self.qmodels):
-                        cur_y_hat = self.qmodel.predict(cur_x[past_labels])
+                        cur_y_hat = qmodel.predict(
+                            cur_x[self.past_labels])
                         Y_hat[i, step, ] = cur_y_hat
-                    new_x = self.model.predict(cur_x[past_labels])
+                    new_x = self.model.predict(cur_x[self.past_labels])
                     cur_x = np.roll(cur_x, -1)
                     cur_x[-1] = new_x
 
@@ -71,7 +73,7 @@ class LightGBMWrapper(BaseWrapper):
             for i, x in enumerate(X):
                 cur_x = x.copy()
                 for step in range(future_steps):
-                    cur_y_hat = self.model.predict(cur_x[past_labels])
+                    cur_y_hat = self.model.predict(cur_x[self.past_labels])
                     Y_hat[i, step] = cur_y_hat
                     cur_x = np.roll(cur_x, -1)
                     cur_x[-1] = cur_y_hat
