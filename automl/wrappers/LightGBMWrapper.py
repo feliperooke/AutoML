@@ -6,12 +6,13 @@ from sklearn.model_selection import train_test_split
 
 class LightGBMWrapper(BaseWrapper):
     def __init__(self, quantiles):
-        super.__init__(quantiles)
+        super().__init__(quantiles)
 
-    def transform_data(self, data, past_labels, index_label, target_label, train_val_split):
+    def transform_data(self, data, past_labels, past_lags, index_label, target_label, train_val_split):
         self.data = data
         self.past_labels = past_labels
-        self.oldest_lag = int(max(self.past_labels)) + 1
+        self.past_lags = past_lags
+        self.oldest_lag = int(max(self.past_lags)) + 1
         self.index_label = index_label
         self.target_label = target_label
         self.last_x = data.drop(target_label, axis=1).iloc[-1, :].values
@@ -20,7 +21,7 @@ class LightGBMWrapper(BaseWrapper):
         y = data[target_label]
 
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, train_size=train_test_split, shuffle=False)
+            X, y, train_size=train_val_split, shuffle=False)
 
         self.training = (X_train, y_train)
         self.validation = (X_test, y_test)
@@ -54,26 +55,24 @@ class LightGBMWrapper(BaseWrapper):
             raise Exception(
                 f'''Error, to make a prediction X needs to have shape (n, {self.oldest_lag})''')
 
-        Y_hat = np.zeros(X.size[0], future_steps, len(
-            self.quantiles)) if quantile else np.array(X.size[0], future_steps)
-
+        Y_hat = np.zeros((len(X), future_steps, len(self.quantiles))) if quantile else np.zeros((len(X), future_steps))
         if quantile:
-            for i, x in enumerate(X):
+            for i, x in enumerate(X.values):
                 cur_x = x.copy()
                 for step in range(future_steps):
-                    for qmodel in enumerate(self.qmodels):
+                    for j, qmodel in enumerate(self.qmodels):
                         cur_y_hat = qmodel.predict(
-                            cur_x[self.past_labels])
-                        Y_hat[i, step, ] = cur_y_hat
-                    new_x = self.model.predict(cur_x[self.past_labels])
+                            cur_x[self.past_lags].reshape(1,-1))
+                        Y_hat[i, step, j] = cur_y_hat
+                    new_x = self.model.predict(cur_x[self.past_lags].reshape(1,-1))
                     cur_x = np.roll(cur_x, -1)
                     cur_x[-1] = new_x
 
         else:
-            for i, x in enumerate(X):
+            for i, x in enumerate(X.values):
                 cur_x = x.copy()
                 for step in range(future_steps):
-                    cur_y_hat = self.model.predict(cur_x[self.past_labels])
+                    cur_y_hat = self.model.predict(cur_x[self.past_lags].reshape(1,-1))
                     Y_hat[i, step] = cur_y_hat
                     cur_x = np.roll(cur_x, -1)
                     cur_x[-1] = cur_y_hat

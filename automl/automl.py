@@ -2,6 +2,7 @@ from lightgbm.sklearn import LGBMRegressor
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
+from tqdm import tqdm
 import warnings
 from sklearn.metrics import mean_squared_error
 import pytorch_lightning as pl
@@ -73,7 +74,8 @@ class AutoML:
         self._evaluate()
 
         # train model
-        self._trainer()
+        # TODO: treinar com todos os dados os wrappers
+        # self._trainer()
 
     def _transform_data(self, model):
         """
@@ -100,7 +102,7 @@ class AutoML:
             self.tft_wrapper.transform_data(data,
                                             self._data_shift.past_lags,
                                             self.index_label,
-                                            self.target_label)
+                                            self.target_label, self.train_val_split)
 
             return (self.tft_wrapper.training, self.tft_wrapper.validation)
 
@@ -111,7 +113,8 @@ class AutoML:
         # adapt the data to the chosen model
         if model == 'lightgbm':
             self.lightgbm_wrapper.transform_data(data,
-                                                 self._data_shift.past_labels,
+                                                 past_labels,
+                                                 self._data_shift.past_lags,
                                                  self.index_label,
                                                  self.target_label, self.train_val_split)
             return (self.lightgbm_wrapper.training, self.lightgbm_wrapper.validation)
@@ -149,14 +152,14 @@ class AutoML:
             y_val = []
 
             for n in self.important_future_timesteps:
-                y_val.append(np.roll(val_y, -(n - 1)))
+                y_val.append(np.roll(val_y, -(n - 1)).T)
 
             return np.array(y_val)[:,
-                                   :-(max(self.important_future_timesteps) - 1)]
+                                   :-(max(self.important_future_timesteps))]
 
         # TFT
 
-        params_list = [{
+        tft_params_list = [{
             'hidden_size': 16,
             'lstm_layers': 1,
             'dropout': 0.1,
@@ -206,29 +209,34 @@ class AutoML:
         print('Evaluating TFT')
 
         tft_list = []
-        for c, params in enumerate(params_list):
-            self.tft_wrapper.train(max_epochs=50, **params)
-            # evaluate the TFT
-            self.evaluation_results['TFT' + str(c)] = {}
+        y_val_matrix = create_validation_matrix(
+            self.tft_wrapper.validation[1].values.T)
 
-            # default values
+        for c, params in enumerate(tft_params_list):
+            self.evaluation_results['TFT'+str(c)] = {}
+            self.tft_wrapper.train(max_epochs=50, **params)
+
             y_pred = np.array(self.tft_wrapper.predict(
-                self.validation, max(self.important_future_timesteps)))[:, [[n-1 for n in self.important_future_timesteps]]]
-            # TODO: Esse y_pred está na shape [instancia, timestamp] após a correção
+                self.tft_wrapper.validation[0], max(self.important_future_timesteps)))[:, [-(n-1) for n in self.important_future_timesteps]]
+
+            y_pred = y_pred.reshape(-1, max(self.important_future_timesteps))[:-max(self.important_future_timesteps),:]
+
             self.evaluation_results['TFT' +
-                                    str(c)]['default'] = self._evaluate_model(y_val, y_pred)
+                                    str(c)]['default'] = self._evaluate_model(y_val_matrix.T.squeeze(), y_pred)
 
             # quantile values
             q_pred = np.array(self.tft_wrapper.predict(
-                self.validation, max(self.important_future_timesteps), quantile=True))[:, [[n-1 for n in self.important_future_timesteps]], :]
-            # TODO: Esse y_pred está na shape [instancia, timestamp, quantile] após a correção
-            tft_list.append(self.tft_wrapper.model)
+                self.tft_wrapper.validation[0], max(self.important_future_timesteps), quantile=True))[:, [-(n-1) for n in self.important_future_timesteps], :]
+
 
             for i in range(len(self.quantiles)):
+                qi_pred = q_pred[:, :, i]
+                qi_pred = qi_pred.reshape(-1, max(self.important_future_timesteps))[:-max(self.important_future_timesteps),:]
                 quantile = self.quantiles[i]
-                q_pred = y_pred[:, i]
-                self.evaluation_results['TFT' + str(c)][str(
-                    quantile)] = self._evaluate_model(y_val, q_pred, quantile)
+
+                self.evaluation_results['TFT' + str(c)][str(quantile)] = self._evaluate_model(y_val_matrix.T.squeeze(), qi_pred, quantile)
+
+            tft_list.append(self.tft_wrapper)
 
         # LightGBM
 
@@ -274,26 +282,31 @@ class AutoML:
 
         lgbm_list = []
         y_val_matrix = create_validation_matrix(
-            self.lightgbm_wrapper.validation[1])
-        for c, params in enumerate(lgbm_params_list):
+            self.lightgbm_wrapper.validation[1].values)
+
+        for c, params in tqdm(enumerate(lgbm_params_list)):
             self.evaluation_results['LightGBM'+str(c)] = {}
             self.lightgbm_wrapper.train(params, quantile_params)
 
             y_pred = np.array(self.lightgbm_wrapper.predict(
-                self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps)))[:, [[-(n-1) for n in self.important_future_timesteps]]]
+                self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps)))[:, [-(n-1) for n in self.important_future_timesteps]]
 
+            y_pred = y_pred.reshape(-1, max(self.important_future_timesteps))[:-max(self.important_future_timesteps),:]
             self.evaluation_results['LightGBM' +
-                                    str(c)]['default'] = self._evaluate_model(create_validation_matrix(y_val_matrix), y_pred)
+                                    str(c)]['default'] = self._evaluate_model(y_val_matrix.T, y_pred)
 
             # quantile values
-            q_pred = np.array(self.tft_wrapper.predict(
-                self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps), quantile=True))[:, [[-(n-1) for n in self.important_future_timesteps]], :]
+            q_pred = np.array(self.lightgbm_wrapper.predict(
+                self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps), quantile=True))[:, [-(n-1) for n in self.important_future_timesteps], :]
+
 
             for i in range(len(self.quantiles)):
                 quantile = self.quantiles[i]
-                q_pred = y_pred[:, :, i]
+                qi_pred = q_pred[:, :, i]
+                qi_pred = qi_pred.reshape(-1, max(self.important_future_timesteps))[:-max(self.important_future_timesteps),:]
+
                 self.evaluation_results['LightGBM' + str(c)][str(
-                    quantile)] = self._evaluate_model(create_validation_matrix(y_val_matrix), q_pred, quantile)
+                    quantile)] = self._evaluate_model(y_val_matrix.T, qi_pred, quantile)
 
             lgbm_list.append({'default': self.lightgbm_wrapper.model,
                               'quantile': self.lightgbm_wrapper.qmodels})
@@ -303,7 +316,7 @@ class AutoML:
         for x in self.evaluation_results.items():
             wape_values[x[0]] = x[1]['default']['wape']
         min_metric = min(wape_values, key=wape_values.get)
-        print(min_metric)
+
         if 'LightGBM' in min_metric:
             idx = int(min_metric[-1])
             self.model = lgbm_list[idx]['default']

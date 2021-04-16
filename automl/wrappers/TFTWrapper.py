@@ -2,13 +2,16 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor
 from pytorch_forecasting.metrics import QuantileLoss
 from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
+from sklearn.model_selection import train_test_split
 import pandas as pd
 from .BaseWrapper import BaseWrapper
 
 
 class TFTWrapper(BaseWrapper):
     def __init__(self, quantiles):
-        super.__init__(quantiles)
+        super().__init__(quantiles)
+        self.intern_training = None
+        self._intern_validation = None
         self.training = None
         self.validation = None
         self.model = None
@@ -17,13 +20,21 @@ class TFTWrapper(BaseWrapper):
         self.last_period = None
         self.quantiles = quantiles
 
-    def transform_data(self, data, past_lags, index_label, target_label):
+    def transform_data(self, data, past_lags, index_label, target_label, train_val_split):
 
         self.past_lags = past_lags
         self.oldest_lag = int(max(self.past_lags)) + 1
         self.index_label = index_label
         self.target_label = target_label
 
+        # External train and validation sets
+        X = data[[index_label]]
+        y = data[[target_label]]
+
+        self.training = (X.loc[:int(len(data) * train_val_split)], y.loc[:int(len(data) * train_val_split)])
+        self.validation =(X.loc[int(len(data) * train_val_split):], y.loc[int(len(data) * train_val_split):])
+
+        # intern train and validation sets, they use dataloaders to optimize the training routine
         # time index are epoch values
         # data["time_idx"] = (data[self.index_label] - pd.Timestamp("1970-01-01")) // pd.Timedelta("1s")
         data["time_idx"] = data.index
@@ -31,10 +42,10 @@ class TFTWrapper(BaseWrapper):
 
         max_prediction_length = self.oldest_lag
         max_encoder_length = self.oldest_lag
-        training_cutoff = data["time_idx"].max() - max_prediction_length
+        # training_cutoff = data["time_idx"].max() - max_prediction_length
 
-        self.training = TimeSeriesDataSet(
-            data[lambda x: x.time_idx <= training_cutoff],
+        self.intern_training = TimeSeriesDataSet(
+            data[:int(len(data) * train_val_split)],
             time_idx="time_idx",
             group_ids=["group_id"],
             target=self.target_label,
@@ -43,9 +54,9 @@ class TFTWrapper(BaseWrapper):
             min_prediction_length=1,
             max_prediction_length=max_prediction_length,
             static_categoricals=["group_id"],
-            time_varying_unknown_reals=[self.target_label],
+            # time_varying_unknown_reals=[self.target_label],
             # the docs says that the max_lag < max_encoder_length
-            lags={self.target_label: list(self.past_lags[1:-1] + 1)},
+            # lags={self.target_label: list(self.past_lags[1:-1] + 1)},
             add_relative_time_idx=True,
             add_target_scales=True,
             add_encoder_length=True,
@@ -54,8 +65,8 @@ class TFTWrapper(BaseWrapper):
 
         # create validation set (predict=True) which means to predict the last max_prediction_length points in time
         # for each series
-        self.validation = TimeSeriesDataSet.from_dataset(
-            self.training, data, predict=True, stop_randomization=True)
+        self._intern_validation = TimeSeriesDataSet.from_dataset(
+            self.intern_training, data, predict=True, stop_randomization=True)
 
         # store the last input to use as encoder data to some predictions
         self.last_period = data.iloc[-(self.oldest_lag*2+1):].copy()
@@ -74,9 +85,9 @@ class TFTWrapper(BaseWrapper):
         # configure network and trainer
         # create dataloaders for model
         batch_size = 128
-        train_dataloader = self.training.to_dataloader(
+        train_dataloader = self.intern_training.to_dataloader(
             train=True, batch_size=batch_size)
-        val_dataloader = self.validation.to_dataloader(
+        val_dataloader = self._intern_validation.to_dataloader(
             train=False, batch_size=batch_size * 10)
 
         pl.seed_everything(42)
@@ -96,7 +107,7 @@ class TFTWrapper(BaseWrapper):
         )
 
         self.model = TemporalFusionTransformer.from_dataset(
-            self.training,
+            self.intern_training,
             learning_rate=learning_rate,
             hidden_size=hidden_size,
             attention_head_size=attention_head_size,
@@ -117,7 +128,7 @@ class TFTWrapper(BaseWrapper):
         # )
 
         # self.model = TemporalFusionTransformer.from_dataset(
-        #     self.training,
+        #     self.intern_training,
         #     learning_rate=res.suggestion(), # using the suggested learining rate
         #     hidden_size=hidden_size,
         #     attention_head_size=attention_head_size,
@@ -140,6 +151,17 @@ class TFTWrapper(BaseWrapper):
         Perform autofeed over the X values to predict the futures steps.
         """
 
+        def append_new_data(cur_X, new_value, date_step):
+            new_date = cur_X[self.index_label].iloc[-1] + date_step
+            new_entry = {
+                self.index_label: new_date,
+                self.target_label: new_value,
+                'time_idx': cur_X['time_idx'].iloc[-1] + 1,
+                'group_id': 'series'
+            }
+            return cur_X.append(new_entry, ignore_index=True)
+
+
         # prediction or quantile mode
         mode = 'quantiles' if quantile else 'prediction'
 
@@ -150,7 +172,19 @@ class TFTWrapper(BaseWrapper):
 
         y = []
 
-        for _ in range(future_steps):
+        # if the future steps is less or equals than the oldest lag the model can predict it by default
+        if future_steps <= self.oldest_lag:
+            predict = self.model.predict(cur_X, mode=mode)[0].numpy().tolist()
+            return predict[:future_steps]
+        else:
+            # short cut the auto feed prediction with more reliable prediction
+            predict = self.model.predict(cur_X, mode=mode)[0].numpy().tolist()
+            for new_value in predict:
+                cur_X = append_new_data(cur_X, new_value, date_step)
+            y = predict
+
+
+        for _ in range(self.oldest_lag, future_steps):
             predict = self.model.predict(cur_X, mode=mode)[0][0]
             if quantile:
                 y.append(predict.numpy().tolist())
@@ -159,29 +193,26 @@ class TFTWrapper(BaseWrapper):
                 y.append(float(predict.numpy()))
                 new_value = y[-1]
 
-            new_date = cur_X[self.index_label].iloc[-1] + date_step
-
-            # auto feed the model to perform the next prediction
-            new_entry = {
-                self.index_label: new_date,
-                self.target_label: new_value,
-                'time_idx': cur_X['time_idx'].iloc[-1] + 1,
-                'group_id': 'series'
-            }
-            cur_X = cur_X.append(new_entry, ignore_index=True)
+            cur_X = append_new_data(cur_X, new_value, date_step)
 
         return y
 
+    def _verify_target_column(self, data):
+        if not self.target_label in data.columns:
+            data[self.target_label] = self.last_period[self.target_label].mean()
+
     def predict(self, X, future_steps, quantile=False):
         predictions = []
+
+        self._verify_target_column(X)
+
         for i in range(len(X)):
             X_temp = self.last_period[-(self.oldest_lag*2-i):].append(X.iloc[:i], ignore_index=True)
             time_idx = list(range(len(X_temp)))  # refact to use real time idx
             time_idx = [idx + self.last_period["time_idx"].max()
                         for idx in time_idx]
             X_temp[self.index_label] = pd.to_datetime(X_temp[self.index_label])
-            X_temp[self.index_label] = X_temp[self.index_label].dt.tz_localize(
-                None)
+            X_temp[self.index_label] = X_temp[self.index_label].dt.tz_localize(None)
             X_temp["time_idx"] = time_idx
             X_temp['group_id'] = 'series'
 
@@ -191,6 +222,8 @@ class TFTWrapper(BaseWrapper):
         return predictions
 
     def next(self, X, future_steps, quantile=False):
+
+        self._verify_target_column(X)
 
         # pre-process the data
         X[self.index_label] = pd.to_datetime(X[self.index_label])
