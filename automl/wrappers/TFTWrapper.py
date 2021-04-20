@@ -56,7 +56,7 @@ class TFTWrapper(BaseWrapper):
             static_categoricals=["group_id"],
             # time_varying_unknown_reals=[self.target_label],
             # the docs says that the max_lag < max_encoder_length
-            # lags={self.target_label: list(self.past_lags[1:-1] + 1)},
+            lags={self.target_label: list(self.past_lags[1:-1] + 1)},
             add_relative_time_idx=True,
             add_target_scales=True,
             add_encoder_length=True,

@@ -219,7 +219,7 @@ class AutoML:
             y_pred = np.array(self.tft_wrapper.predict(
                 self.tft_wrapper.validation[0], max(self.important_future_timesteps)))[:, [-(n-1) for n in self.important_future_timesteps]]
 
-            y_pred = y_pred.reshape(-1, max(self.important_future_timesteps))[:-max(self.important_future_timesteps),:]
+            y_pred = y_pred[:-max(self.important_future_timesteps),:]
 
             self.evaluation_results['TFT' +
                                     str(c)]['default'] = self._evaluate_model(y_val_matrix.T.squeeze(), y_pred)
@@ -231,7 +231,7 @@ class AutoML:
 
             for i in range(len(self.quantiles)):
                 qi_pred = q_pred[:, :, i]
-                qi_pred = qi_pred.reshape(-1, max(self.important_future_timesteps))[:-max(self.important_future_timesteps),:]
+                qi_pred = qi_pred[:-max(self.important_future_timesteps),:]
                 quantile = self.quantiles[i]
 
                 self.evaluation_results['TFT' + str(c)][str(quantile)] = self._evaluate_model(y_val_matrix.T.squeeze(), qi_pred, quantile)
@@ -291,7 +291,7 @@ class AutoML:
             y_pred = np.array(self.lightgbm_wrapper.predict(
                 self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps)))[:, [-(n-1) for n in self.important_future_timesteps]]
 
-            y_pred = y_pred.reshape(-1, max(self.important_future_timesteps))[:-max(self.important_future_timesteps),:]
+            y_pred = y_pred[:-max(self.important_future_timesteps),:]
             self.evaluation_results['LightGBM' +
                                     str(c)]['default'] = self._evaluate_model(y_val_matrix.T, y_pred)
 
@@ -303,7 +303,7 @@ class AutoML:
             for i in range(len(self.quantiles)):
                 quantile = self.quantiles[i]
                 qi_pred = q_pred[:, :, i]
-                qi_pred = qi_pred.reshape(-1, max(self.important_future_timesteps))[:-max(self.important_future_timesteps),:]
+                qi_pred = qi_pred[:-max(self.important_future_timesteps),:]
 
                 self.evaluation_results['LightGBM' + str(c)][str(
                     quantile)] = self._evaluate_model(y_val_matrix.T, qi_pred, quantile)
