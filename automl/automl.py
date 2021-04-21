@@ -217,24 +217,31 @@ class AutoML:
             self.tft_wrapper.train(max_epochs=50, **params)
 
             y_pred = np.array(self.tft_wrapper.predict(
-                self.tft_wrapper.validation[0], max(self.important_future_timesteps)))[:, [-(n-1) for n in self.important_future_timesteps]]
+                self.tft_wrapper.validation[0],
+                future_steps=max(self.important_future_timesteps),
+                history=self.tft_wrapper.last_period,
+            ))[:, [-(n-1) for n in self.important_future_timesteps]]
 
-            y_pred = y_pred[:-max(self.important_future_timesteps),:]
+            y_pred = y_pred[:-max(self.important_future_timesteps), :]
 
             self.evaluation_results['TFT' +
                                     str(c)]['default'] = self._evaluate_model(y_val_matrix.T.squeeze(), y_pred)
 
             # quantile values
             q_pred = np.array(self.tft_wrapper.predict(
-                self.tft_wrapper.validation[0], max(self.important_future_timesteps), quantile=True))[:, [-(n-1) for n in self.important_future_timesteps], :]
-
+                self.tft_wrapper.validation[0],
+                future_steps=max(self.important_future_timesteps),
+                history=self.tft_wrapper.last_period,
+                quantile=True
+            ))[:, [-(n-1) for n in self.important_future_timesteps], :]
 
             for i in range(len(self.quantiles)):
                 qi_pred = q_pred[:, :, i]
-                qi_pred = qi_pred[:-max(self.important_future_timesteps),:]
+                qi_pred = qi_pred[:-max(self.important_future_timesteps), :]
                 quantile = self.quantiles[i]
 
-                self.evaluation_results['TFT' + str(c)][str(quantile)] = self._evaluate_model(y_val_matrix.T.squeeze(), qi_pred, quantile)
+                self.evaluation_results['TFT' + str(c)][str(quantile)] = self._evaluate_model(
+                    y_val_matrix.T.squeeze(), qi_pred, quantile)
 
             tft_list.append(self.tft_wrapper)
 
@@ -291,7 +298,7 @@ class AutoML:
             y_pred = np.array(self.lightgbm_wrapper.predict(
                 self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps)))[:, [-(n-1) for n in self.important_future_timesteps]]
 
-            y_pred = y_pred[:-max(self.important_future_timesteps),:]
+            y_pred = y_pred[:-max(self.important_future_timesteps), :]
             self.evaluation_results['LightGBM' +
                                     str(c)]['default'] = self._evaluate_model(y_val_matrix.T, y_pred)
 
@@ -299,11 +306,10 @@ class AutoML:
             q_pred = np.array(self.lightgbm_wrapper.predict(
                 self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps), quantile=True))[:, [-(n-1) for n in self.important_future_timesteps], :]
 
-
             for i in range(len(self.quantiles)):
                 quantile = self.quantiles[i]
                 qi_pred = q_pred[:, :, i]
-                qi_pred = qi_pred[:-max(self.important_future_timesteps),:]
+                qi_pred = qi_pred[:-max(self.important_future_timesteps), :]
 
                 self.evaluation_results['LightGBM' + str(c)][str(
                     quantile)] = self._evaluate_model(y_val_matrix.T, qi_pred, quantile)
@@ -357,7 +363,7 @@ class AutoML:
 
             # return self.model, self.quantile_models
 
-    def predict(self, X, future_steps, quantile=False):
+    def predict(self, X, future_steps, quantile=False, history=[]):
         """
         Uses the input "X" to predict "future_steps" steps into the future.
 
@@ -369,6 +375,12 @@ class AutoML:
 
         :param quantile:
             Use quantile models instead of the mean based.
+
+        :param history:
+            History buffer that will be used to as base to new predictions.
+            The history based models demands at least 2 * oldest_lag to make the predictions,
+            so if the choosen model is one of them it demands this parameter.
+            History based models: [TFT].
 
         """
         if(len(X) < self.oldest_lag):
@@ -382,8 +394,12 @@ class AutoML:
         y = []
 
         # Prediction
-        if isinstance(self.model, TemporalFusionTransformer):
-            y = self.tft_wrapper.predict(X, future_steps, quantile)
+        if isinstance(self.model, TFTWrapper):
+            if not isinstance(history, pd.DataFrame) or len(history) < self.oldest_lag * 2:
+                raise Exception(f'''To make a prediction with TFT, the history parameter must
+                                be a dataframe sample with at least 2 times the {self.oldest_lag} long''')
+            y = self.model.predict(
+                X, future_steps, history=history, quantile=quantile)
 
         else:
             for _ in range(future_steps):
@@ -417,8 +433,8 @@ class AutoML:
             Use quantile models instead of the mean based.
 
         """
-        if isinstance(self.model, TemporalFusionTransformer):
-            return self.tft_wrapper.next(X=self.data, future_steps=future_steps, quantile=quantile)
+        if isinstance(self.model, TFTWrapper):
+            return self.model.next(X=self.data, future_steps=future_steps, quantile=quantile)
         else:
             return self.predict(self.data, future_steps, quantile=quantile)
 
