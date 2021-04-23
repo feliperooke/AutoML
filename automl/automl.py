@@ -219,7 +219,7 @@ class AutoML:
             y_pred = np.array(self.tft_wrapper.predict(
                 self.tft_wrapper.validation[0], max(self.important_future_timesteps)))[:, [-(n-1) for n in self.important_future_timesteps]]
 
-            y_pred = y_pred[:-max(self.important_future_timesteps),:]
+            y_pred = y_pred[:-max(self.important_future_timesteps), :]
 
             self.evaluation_results['TFT' +
                                     str(c)]['default'] = self._evaluate_model(y_val_matrix.T.squeeze(), y_pred)
@@ -228,13 +228,13 @@ class AutoML:
             q_pred = np.array(self.tft_wrapper.predict(
                 self.tft_wrapper.validation[0], max(self.important_future_timesteps), quantile=True))[:, [-(n-1) for n in self.important_future_timesteps], :]
 
-
             for i in range(len(self.quantiles)):
                 qi_pred = q_pred[:, :, i]
-                qi_pred = qi_pred[:-max(self.important_future_timesteps),:]
+                qi_pred = qi_pred[:-max(self.important_future_timesteps), :]
                 quantile = self.quantiles[i]
 
-                self.evaluation_results['TFT' + str(c)][str(quantile)] = self._evaluate_model(y_val_matrix.T.squeeze(), qi_pred, quantile)
+                self.evaluation_results['TFT' + str(c)][str(quantile)] = self._evaluate_model(
+                    y_val_matrix.T.squeeze(), qi_pred, quantile)
 
             tft_list.append(self.tft_wrapper)
 
@@ -291,7 +291,7 @@ class AutoML:
             y_pred = np.array(self.lightgbm_wrapper.predict(
                 self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps)))[:, [-(n-1) for n in self.important_future_timesteps]]
 
-            y_pred = y_pred[:-max(self.important_future_timesteps),:]
+            y_pred = y_pred[:-max(self.important_future_timesteps), :]
             self.evaluation_results['LightGBM' +
                                     str(c)]['default'] = self._evaluate_model(y_val_matrix.T, y_pred)
 
@@ -299,11 +299,10 @@ class AutoML:
             q_pred = np.array(self.lightgbm_wrapper.predict(
                 self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps), quantile=True))[:, [-(n-1) for n in self.important_future_timesteps], :]
 
-
             for i in range(len(self.quantiles)):
                 quantile = self.quantiles[i]
                 qi_pred = q_pred[:, :, i]
-                qi_pred = qi_pred[:-max(self.important_future_timesteps),:]
+                qi_pred = qi_pred[:-max(self.important_future_timesteps), :]
 
                 self.evaluation_results['LightGBM' + str(c)][str(
                     quantile)] = self._evaluate_model(y_val_matrix.T, qi_pred, quantile)
@@ -375,15 +374,14 @@ class AutoML:
             raise Exception(f'''Error, to make a prediction X needs to be at
                                 least {self.oldest_lag} items long''')
 
-        # Pre-process data
         if isinstance(self.model, LGBMRegressor):
-            cur_X = self._data_shift.transform(X.copy())
-            cur_X = cur_X[self._data_shift.past_labels].values
-        y = []
+            x = X.values[:-oldest_lag, -1].reshape[1, -1]
+            y = self.lightgbm_wrapper.predict(
+                x, future_steps, quantile=quantile)
 
         # Prediction
-        if isinstance(self.model, TemporalFusionTransformer):
-            y = self.tft_wrapper.predict(X, future_steps, quantile)
+        elif isinstance(self.model, TemporalFusionTransformer):
+            y = self.tft_wrapper.predict(X, future_steps, quantile=quantile)
 
         else:
             for _ in range(future_steps):
@@ -417,10 +415,12 @@ class AutoML:
             Use quantile models instead of the mean based.
 
         """
+        if isinstance(self.model, LGBMRegressor):
+            return self.lightgbm_wrapper.next(future_steps, quantile=quantile)
         if isinstance(self.model, TemporalFusionTransformer):
             return self.tft_wrapper.next(X=self.data, future_steps=future_steps, quantile=quantile)
-        else:
-            return self.predict(self.data, future_steps, quantile=quantile)
+
+        return self.predict(self.data, future_steps, quantile=quantile)
 
     def add_new_data(self, new_data_path, append=True):
         """
