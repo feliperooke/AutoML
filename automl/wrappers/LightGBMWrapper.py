@@ -15,7 +15,7 @@ class LightGBMWrapper(BaseWrapper):
         self.oldest_lag = int(max(self.past_lags)) + 1
         self.index_label = index_label
         self.target_label = target_label
-        self.last_x = data.drop(target_label, axis=1).iloc[-1, :].values
+        self.last_x = data.drop([index_label, target_label], axis=1).tail(1)
 
         X = data[past_labels]
         y = data[target_label]

@@ -217,7 +217,10 @@ class AutoML:
             self.tft_wrapper.train(max_epochs=50, **params)
 
             y_pred = np.array(self.tft_wrapper.predict(
-                self.tft_wrapper.validation[0], max(self.important_future_timesteps)))[:, [-(n-1) for n in self.important_future_timesteps]]
+                self.tft_wrapper.validation[0],
+                future_steps=max(self.important_future_timesteps),
+                history=self.tft_wrapper.last_period,
+            ))[:, [-(n-1) for n in self.important_future_timesteps]]
 
             y_pred = y_pred[:-max(self.important_future_timesteps), :]
 
@@ -226,7 +229,11 @@ class AutoML:
 
             # quantile values
             q_pred = np.array(self.tft_wrapper.predict(
-                self.tft_wrapper.validation[0], max(self.important_future_timesteps), quantile=True))[:, [-(n-1) for n in self.important_future_timesteps], :]
+                self.tft_wrapper.validation[0],
+                future_steps=max(self.important_future_timesteps),
+                history=self.tft_wrapper.last_period,
+                quantile=True
+            ))[:, [-(n-1) for n in self.important_future_timesteps], :]
 
             for i in range(len(self.quantiles)):
                 qi_pred = q_pred[:, :, i]
@@ -307,8 +314,7 @@ class AutoML:
                 self.evaluation_results['LightGBM' + str(c)][str(
                     quantile)] = self._evaluate_model(y_val_matrix.T, qi_pred, quantile)
 
-            lgbm_list.append({'default': self.lightgbm_wrapper.model,
-                              'quantile': self.lightgbm_wrapper.qmodels})
+            lgbm_list.append(self.lightgbm_wrapper)
 
         # Choose the best model comparing the default prediction metric results
         wape_values = {}
@@ -318,8 +324,7 @@ class AutoML:
 
         if 'LightGBM' in min_metric:
             idx = int(min_metric[-1])
-            self.model = lgbm_list[idx]['default']
-            self.quantile_models = lgbm_list[idx]['quantile']
+            self.model = lgbm_list[idx]
         elif 'TFT' in min_metric:
             idx = int(min_metric[-1])
             self.model = tft_list[idx]
@@ -356,7 +361,7 @@ class AutoML:
 
             # return self.model, self.quantile_models
 
-    def predict(self, X, future_steps, quantile=False):
+    def predict(self, X, future_steps, quantile=False, history=[]):
         """
         Uses the input "X" to predict "future_steps" steps into the future.
 
@@ -369,21 +374,35 @@ class AutoML:
         :param quantile:
             Use quantile models instead of the mean based.
 
+        :param history:
+            History buffer that will be used to as base to new predictions.
+            The history based models demands at least 2 * oldest_lag to make the predictions,
+            so if the choosen model is one of them it demands this parameter.
+            History based models: [TFT].
+
         """
         if(len(X) < self.oldest_lag):
             raise Exception(f'''Error, to make a prediction X needs to be at
                                 least {self.oldest_lag} items long''')
 
-        if isinstance(self.model, LGBMRegressor):
-            x = X.values[:-oldest_lag, -1].reshape[1, -1]
-            y = self.lightgbm_wrapper.predict(
-                x, future_steps, quantile=quantile)
+        if isinstance(self.model, LightGBMWrapper):
+            X = self._data_shift.transform(X)
+            X = X.drop(self.index_label, axis=1)
+            y = self.model.predict(
+                X, future_steps, quantile=quantile)
+            return y
 
         # Prediction
-        elif isinstance(self.model, TemporalFusionTransformer):
-            y = self.tft_wrapper.predict(X, future_steps, quantile=quantile)
+        if isinstance(self.model, TFTWrapper):
+            if not isinstance(history, pd.DataFrame) or len(history) < self.oldest_lag * 2:
+                raise Exception(f'''To make a prediction with TFT, the history parameter must
+                                be a dataframe sample with at least 2 times the {self.oldest_lag} long''')
+            y = self.model.predict(
+                X, future_steps, history=history, quantile=quantile)
+            return y
 
         else:
+            y = []
             for _ in range(future_steps):
 
                 if quantile:  # predict with quantile models
@@ -415,12 +434,10 @@ class AutoML:
             Use quantile models instead of the mean based.
 
         """
-        if isinstance(self.model, LGBMRegressor):
-            return self.lightgbm_wrapper.next(future_steps, quantile=quantile)
-        if isinstance(self.model, TemporalFusionTransformer):
-            return self.tft_wrapper.next(X=self.data, future_steps=future_steps, quantile=quantile)
-
-        return self.predict(self.data, future_steps, quantile=quantile)
+        if isinstance(self.model, LightGBMWrapper):
+            return self.model.next(future_steps, quantile=quantile)
+        if isinstance(self.model, TFTWrapper):
+            return self.model.next(X=self.data, future_steps=future_steps, quantile=quantile)
 
     def add_new_data(self, new_data_path, append=True):
         """

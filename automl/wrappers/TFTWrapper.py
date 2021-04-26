@@ -56,7 +56,7 @@ class TFTWrapper(BaseWrapper):
             static_categoricals=["group_id"],
             # time_varying_unknown_reals=[self.target_label],
             # the docs says that the max_lag < max_encoder_length
-            lags={self.target_label: list(self.past_lags[1:-1] + 1)},
+            # lags={self.target_label: list(self.past_lags[1:-1] + 1)},
             add_relative_time_idx=True,
             add_target_scales=True,
             add_encoder_length=True,
@@ -68,7 +68,7 @@ class TFTWrapper(BaseWrapper):
         self._intern_validation = TimeSeriesDataSet.from_dataset(
             self.intern_training, data, predict=True, stop_randomization=True)
 
-        # store the last input to use as encoder data to some predictions
+        # store the last input to use as encoder data to next predictions
         self.last_period = data.iloc[-(self.oldest_lag*2+1):].copy()
 
     def train(self,
@@ -199,15 +199,15 @@ class TFTWrapper(BaseWrapper):
 
     def _verify_target_column(self, data):
         if not self.target_label in data.columns:
-            data[self.target_label] = self.last_period[self.target_label].mean()
+            data[self.target_label] = 0
 
-    def predict(self, X, future_steps, quantile=False):
+    def predict(self, X, future_steps, history, quantile=False):
         predictions = []
 
         self._verify_target_column(X)
 
         for i in range(len(X)):
-            X_temp = self.last_period[-(self.oldest_lag*2-i):].append(X.iloc[:i], ignore_index=True)
+            X_temp = history.append(X.iloc[:i], ignore_index=True)
             time_idx = list(range(len(X_temp)))  # refact to use real time idx
             time_idx = [idx + self.last_period["time_idx"].max()
                         for idx in time_idx]
