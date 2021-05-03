@@ -19,21 +19,21 @@ class TFTWrapper(BaseWrapper):
         self.oldest_lag = None
         self.last_period = None
 
-    def transform_data(self, data, past_lags, index_label, target_label, train_val_split):
+    def transform_data(self, data):
 
-        self.past_lags = past_lags
+        self.past_lags = self.automl._data_shift.past_lags
         self.oldest_lag = int(max(self.past_lags)) + 1
-        self.index_label = index_label
-        self.target_label = target_label
+        self.index_label = self.automl.index_label
+        self.target_label = self.automl.target_label
 
         # External train and validation sets
-        X = data[[index_label]]
-        y = data[[target_label]]
+        X = data[[self.index_label]]
+        y = data[[self.target_label]]
 
-        self.training = (X.loc[:int(len(data) * train_val_split)],
-                         y.loc[:int(len(data) * train_val_split)])
-        self.validation = (X.loc[int(len(data) * train_val_split):],
-                           y.loc[int(len(data) * train_val_split):])
+        self.training = (X.loc[:int(len(data) * self.automl.train_val_split)],
+                         y.loc[:int(len(data) * self.automl.train_val_split)])
+        self.validation = (X.loc[int(len(data) * self.automl.train_val_split):],
+                           y.loc[int(len(data) * self.automl.train_val_split):])
 
         # intern train and validation sets, they use dataloaders to optimize the training routine
         # time index are epoch values
@@ -46,7 +46,7 @@ class TFTWrapper(BaseWrapper):
         # training_cutoff = data["time_idx"].max() - max_prediction_length
 
         self.intern_training = TimeSeriesDataSet(
-            data[:int(len(data) * train_val_split)],
+            data[:int(len(data) * self.automl.train_val_split)],
             time_idx="time_idx",
             group_ids=["group_id"],
             target=self.target_label,

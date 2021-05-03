@@ -8,20 +8,21 @@ class LightGBMWrapper(BaseWrapper):
     def __init__(self, automl_instance):
         super().__init__(automl_instance)
 
-    def transform_data(self, data, past_labels, past_lags, index_label, target_label, train_val_split):
-        self.data = data
-        self.past_labels = past_labels
-        self.past_lags = past_lags
+    def transform_data(self, data):
+        self.data = self.automl._data_shift.transform(data)
+        self.past_labels = self.automl._data_shift.past_labels
+        self.past_lags = self.automl._data_shift.past_lags
         self.oldest_lag = int(max(self.past_lags)) + 1
-        self.index_label = index_label
-        self.target_label = target_label
-        self.last_x = data.drop([index_label, target_label], axis=1).tail(1)
+        self.index_label = self.automl.index_label
+        self.target_label = self.automl.target_label
+        self.last_x = data.drop(
+            [self.index_label, self.target_label], axis=1).tail(1)
 
-        X = data[past_labels]
-        y = data[target_label]
+        X = data[self.past_labels]
+        y = data[self.target_label]
 
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, train_size=train_val_split, shuffle=False)
+            X, y, train_size=self.automl.train_val_split, shuffle=False)
 
         self.training = (X_train, y_train)
         self.validation = (X_test, y_test)

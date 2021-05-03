@@ -16,7 +16,7 @@ from .wrappers.LightGBMWrapper import LightGBMWrapper
 
 
 class AutoML:
-    def __init__(self, path, jobs=0, fillnan='ffill', nlags=24, important_future_timesteps=[1], train_val_split=0.8):
+    def __init__(self, path, jobs=0, fillnan='ffill', nlags=24, model_constructors=[LightGBMWrapper], important_future_timesteps=[1], train_val_split=0.8):
         """
         AutoML is an auto machine learning project with focus on predict
         time series using simple usage and high-level understanding over
@@ -27,6 +27,9 @@ class AutoML:
 
         :param jobs:
             Number of jobs used during the training and evaluation.
+
+        :param model_constructors:
+            List with the constructors of all the models that will be used in this instance of AutoML.
 
         :param fillnan: {'bfill', 'ffill'}, default ffill
             Method to use for filling holes. 
@@ -53,6 +56,7 @@ class AutoML:
         self.oldest_lag = 1
         self.train_val_split = train_val_split
         self.quantiles = [.1, .5, .9]
+        self.wrappers = {wr.__name__: wr(self) for wr in model_constructors}
         self.tft_wrapper = TFTWrapper(self)
         self.lightgbm_wrapper = LightGBMWrapper(self)
         self.important_future_timesteps = important_future_timesteps
@@ -69,15 +73,15 @@ class AutoML:
         self.model = None
         self.quantile_models = []
 
+        self._transform_data()
         self._evaluate()
 
-    def _transform_data(self, model):
+    def _transform_data(self):
         """
-        Clean and prepare data to use as model input.
-
-        :param model: Adapt data to the specific model.
+        Clean and prepare data to use on each wrapper.
 
         """
+
         data = self.data.copy()
 
         self.index_label, self.target_label = tuple(data.columns)
@@ -91,27 +95,8 @@ class AutoML:
         self._data_shift.fit(data)
         self.oldest_lag = int(max(self._data_shift.past_lags)) + 1
 
-        if model == 'TFT':
-            # return processed_data
-            self.tft_wrapper.transform_data(data,
-                                            self._data_shift.past_lags,
-                                            self.index_label,
-                                            self.target_label, self.train_val_split)
-
-            return (self.tft_wrapper.training, self.tft_wrapper.validation)
-
-        # add to the data the past lags
-        data = self._data_shift.transform(data)
-        past_labels = self._data_shift.past_labels
-
-        # adapt the data to the chosen model
-        if model == 'lightgbm':
-            self.lightgbm_wrapper.transform_data(data,
-                                                 past_labels,
-                                                 self._data_shift.past_lags,
-                                                 self.index_label,
-                                                 self.target_label, self.train_val_split)
-            return (self.lightgbm_wrapper.training, self.lightgbm_wrapper.validation)
+        for wrapper in self.wrappers.values():
+            wrapper.transform_data(data)
 
     def _evaluate_model(self, y_val, y_pred, quantile=None):
         """
