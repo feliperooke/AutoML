@@ -8,8 +8,8 @@ from .BaseWrapper import BaseWrapper
 
 
 class TFTWrapper(BaseWrapper):
-    def __init__(self, quantiles):
-        super().__init__(quantiles)
+    def __init__(self, automl_instance):
+        super().__init__(automl_instance)
         self.intern_training = None
         self._intern_validation = None
         self.training = None
@@ -18,7 +18,6 @@ class TFTWrapper(BaseWrapper):
         self.trainer = None
         self.oldest_lag = None
         self.last_period = None
-        self.quantiles = quantiles
 
     def transform_data(self, data, past_lags, index_label, target_label, train_val_split):
 
@@ -31,8 +30,10 @@ class TFTWrapper(BaseWrapper):
         X = data[[index_label]]
         y = data[[target_label]]
 
-        self.training = (X.loc[:int(len(data) * train_val_split)], y.loc[:int(len(data) * train_val_split)])
-        self.validation =(X.loc[int(len(data) * train_val_split):], y.loc[int(len(data) * train_val_split):])
+        self.training = (X.loc[:int(len(data) * train_val_split)],
+                         y.loc[:int(len(data) * train_val_split)])
+        self.validation = (X.loc[int(len(data) * train_val_split):],
+                           y.loc[int(len(data) * train_val_split):])
 
         # intern train and validation sets, they use dataloaders to optimize the training routine
         # time index are epoch values
@@ -161,7 +162,6 @@ class TFTWrapper(BaseWrapper):
             }
             return cur_X.append(new_entry, ignore_index=True)
 
-
         # prediction or quantile mode
         mode = 'quantiles' if quantile else 'prediction'
 
@@ -182,7 +182,6 @@ class TFTWrapper(BaseWrapper):
             for new_value in predict:
                 cur_X = append_new_data(cur_X, new_value, date_step)
             y = predict
-
 
         for _ in range(self.oldest_lag, future_steps):
             predict = self.model.predict(cur_X, mode=mode)[0][0]
@@ -212,7 +211,8 @@ class TFTWrapper(BaseWrapper):
             time_idx = [idx + self.last_period["time_idx"].max()
                         for idx in time_idx]
             X_temp[self.index_label] = pd.to_datetime(X_temp[self.index_label])
-            X_temp[self.index_label] = X_temp[self.index_label].dt.tz_localize(None)
+            X_temp[self.index_label] = X_temp[self.index_label].dt.tz_localize(
+                None)
             X_temp["time_idx"] = time_idx
             X_temp['group_id'] = 'series'
 

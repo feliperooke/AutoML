@@ -53,16 +53,14 @@ class AutoML:
         self.oldest_lag = 1
         self.train_val_split = train_val_split
         self.quantiles = [.1, .5, .9]
-        self.tft_wrapper = TFTWrapper(self.quantiles)
-        self.lightgbm_wrapper = LightGBMWrapper(self.quantiles)
+        self.tft_wrapper = TFTWrapper(self)
+        self.lightgbm_wrapper = LightGBMWrapper(self)
         self.important_future_timesteps = important_future_timesteps
 
         if len(self.data.columns) > 2:
             raise Exception('Data has more than 2 columns.')
 
         self._data_shift = DataShift(nlags=self.nlags)
-        self.X, self.y = self._transform_data('lightgbm')
-        self.training, self.validation = self._transform_data('TFT')
 
         # results obtained during evaluation
         self.evaluation_results = {}
@@ -72,10 +70,6 @@ class AutoML:
         self.quantile_models = []
 
         self._evaluate()
-
-        # train model
-        # TODO: treinar com todos os dados os wrappers
-        # self._trainer()
 
     def _transform_data(self, model):
         """
@@ -329,38 +323,6 @@ class AutoML:
             idx = int(min_metric[-1])
             self.model = tft_list[idx]
 
-    def _trainer(self, idx=0):
-        """
-        Train the chosen model and evaluate the final result.
-
-        """
-
-        if isinstance(self.model, LGBMRegressor):
-            # train data shifted by the max lag period
-            X_train, y_train = self.X[:-
-                                      self.oldest_lag], self.y[:-self.oldest_lag]
-
-            self.model.fit(X_train, y_train)
-
-            for quantile_model in self.quantile_models:
-                quantile_model.fit(X_train, y_train)
-
-            # evaluate the models on the last max lag period
-            X_val, y_val = self.X[-self.oldest_lag:], self.y[-self.oldest_lag:]
-
-            # default model
-            y_pred = self.model.predict(X_val)
-            self.evaluation_results['LightGBM' +
-                                    str(idx)]['default'] = self._evaluate_model(y_val, y_pred)
-
-            # quantile models
-            for quantile, model in zip(self.quantiles, self.quantile_models):
-                y_pred = model.predict(X_val)
-                self.evaluation_results['LightGBM'+str(idx)][str(
-                    quantile)] = self._evaluate_model(y_val, y_pred, quantile)
-
-            # return self.model, self.quantile_models
-
     def predict(self, X, future_steps, quantile=False, history=[]):
         """
         Uses the input "X" to predict "future_steps" steps into the future.
@@ -438,31 +400,3 @@ class AutoML:
             return self.model.next(future_steps, quantile=quantile)
         if isinstance(self.model, TFTWrapper):
             return self.model.next(X=self.data, future_steps=future_steps, quantile=quantile)
-
-    def add_new_data(self, new_data_path, append=True):
-        """
-        Retrain data with the new input. 
-
-        Obs.: It can change the number of past lags.
-
-        :param new_data_path:
-            New data path to be added.
-
-        :param append:
-            Append new data or substitute.
-
-        """
-
-        new_data = pd.read_csv(new_data_path)
-        if len(new_data.columns) > 2:
-            raise Exception('Data has more than 2 columns.')
-
-        if append:
-            self.data = self.data.append(new_data, ignore_index=True)
-        else:
-            self.data = new_data
-
-        self.X, self.y = self._transform_data('lightgbm')
-
-        # self._evaluate()
-        self._trainer()

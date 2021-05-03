@@ -5,8 +5,8 @@ from sklearn.model_selection import train_test_split
 
 
 class LightGBMWrapper(BaseWrapper):
-    def __init__(self, quantiles):
-        super().__init__(quantiles)
+    def __init__(self, automl_instance):
+        super().__init__(automl_instance)
 
     def transform_data(self, data, past_labels, past_lags, index_label, target_label, train_val_split):
         self.data = data
@@ -55,16 +55,18 @@ class LightGBMWrapper(BaseWrapper):
             raise Exception(
                 f'''Error, to make a prediction X needs to have shape (n, {self.oldest_lag})''')
 
-        Y_hat = np.zeros((len(X), future_steps, len(self.quantiles))) if quantile else np.zeros((len(X), future_steps))
+        Y_hat = np.zeros((len(X), future_steps, len(self.quantiles))
+                         ) if quantile else np.zeros((len(X), future_steps))
         if quantile:
             for i, x in enumerate(X.values):
                 cur_x = x.copy()
                 for step in range(future_steps):
                     for j, qmodel in enumerate(self.qmodels):
                         cur_y_hat = qmodel.predict(
-                            cur_x[self.past_lags].reshape(1,-1))
+                            cur_x[self.past_lags].reshape(1, -1))
                         Y_hat[i, step, j] = cur_y_hat
-                    new_x = self.model.predict(cur_x[self.past_lags].reshape(1,-1))
+                    new_x = self.model.predict(
+                        cur_x[self.past_lags].reshape(1, -1))
                     cur_x = np.roll(cur_x, -1)
                     cur_x[-1] = new_x
 
@@ -72,7 +74,8 @@ class LightGBMWrapper(BaseWrapper):
             for i, x in enumerate(X.values):
                 cur_x = x.copy()
                 for step in range(future_steps):
-                    cur_y_hat = self.model.predict(cur_x[self.past_lags].reshape(1,-1))
+                    cur_y_hat = self.model.predict(
+                        cur_x[self.past_lags].reshape(1, -1))
                     Y_hat[i, step] = cur_y_hat
                     cur_x = np.roll(cur_x, -1)
                     cur_x[-1] = cur_y_hat
