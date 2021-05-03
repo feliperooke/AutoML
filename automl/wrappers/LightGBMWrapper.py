@@ -1,4 +1,6 @@
 from .BaseWrapper import BaseWrapper
+from tqdm import tqdm
+import copy
 import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import train_test_split
@@ -85,3 +87,79 @@ class LightGBMWrapper(BaseWrapper):
 
     def next(self, future_steps, quantile=False):
         return self.predict(self.last_x, future_steps, quantile=quantile)
+
+    # Static Values and Methods
+
+    params_list = [{
+        'num_leaves': 32,
+        'max_depth': 6,
+        'learning_rate': 0.001,
+        'num_iterations': 15000,
+        'n_estimators': 100,
+    }, {
+        'num_leaves': 64,
+        'max_depth': 8,
+        'learning_rate': 0.001,
+        'num_iterations': 15000,
+        'n_estimators': 200,
+    }, {
+        'num_leaves': 128,
+        'max_depth': 10,
+        'learning_rate': 0.001,
+        'num_iterations': 15000,
+        'n_estimators': 300,
+    }, {
+        'num_leaves': 128,
+        'max_depth': 8,
+        'learning_rate': 0.005,
+        'num_iterations': 15000,
+        'n_estimators': 200,
+    }, {
+        'num_leaves': 64,
+        'max_depth': 10,
+        'learning_rate': 0.001,
+        'num_iterations': 15000,
+        'n_estimators': 300,
+    }, ]
+
+    quantile_params = {
+        'objective': 'quantile',
+        'metric': 'quantile',
+    }
+
+    @staticmethod
+    def _evaluate(auto_ml, cur_wrapper):
+        print('Evaluating LightGBM')
+
+        prefix = 'LightGBM'
+
+        wrapper_list = []
+        y_val_matrix = auto_ml._create_validation_matrix(
+            cur_wrapper.validation[1].values.T)
+
+        for c, params in tqdm(enumerate(LightGBMWrapper.params_list)):
+            auto_ml.evaluation_results[prefix+str(c)] = {}
+            cur_wrapper.train(params, quantile_params)
+
+            y_pred = np.array(cur_wrapper.predict(
+                cur_wrapper.validation[0], max(auto_ml.important_future_timesteps)))[:, [-(n-1) for n in auto_ml.important_future_timesteps]]
+
+            y_pred = y_pred[:-max(auto_ml.important_future_timesteps), :]
+            auto_ml.evaluation_results[prefix +
+                                       str(c)]['default'] = auto_ml._evaluate_model(y_val_matrix.T, y_pred)
+
+            # quantile values
+            q_pred = np.array(cur_wrapper.predict(
+                cur_wrapper.validation[0], max(auto_ml.important_future_timesteps), quantile=True))[:, [-(n-1) for n in auto_ml.important_future_timesteps], :]
+
+            for i in range(len(auto_ml.quantiles)):
+                quantile = auto_ml.quantiles[i]
+                qi_pred = q_pred[:, :, i]
+                qi_pred = qi_pred[:-max(auto_ml.important_future_timesteps), :]
+
+                auto_ml.evaluation_results[prefix + str(c)][str(
+                    quantile)] = auto_ml._evaluate_model(y_val_matrix.T, qi_pred, quantile)
+
+            wrapper_list.append(copy.copy(cur_wrapper))
+
+        return prefix, wrapper_list

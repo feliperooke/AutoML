@@ -1,4 +1,6 @@
+import copy
 import pytorch_lightning as pl
+from tqdm import tqdm
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor
 from pytorch_forecasting.metrics import QuantileLoss
 from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
@@ -241,3 +243,97 @@ class TFTWrapper(BaseWrapper):
         y = self._auto_feed(cur_X, future_steps, quantile)
 
         return y
+
+    # Static Values and Methods
+
+    params_list = [{
+        'hidden_size': 16,
+        'lstm_layers': 1,
+        'dropout': 0.1,
+        'attention_head_size': 1,
+        'reduce_on_plateau_patience': 4,
+        'hidden_continuous_size': 8,
+        'learning_rate': 1e-3,
+        'gradient_clip_val': 0.1,
+    }, {
+        'hidden_size': 32,
+        'lstm_layers': 1,
+        'dropout': 0.2,
+        'attention_head_size': 2,
+        'reduce_on_plateau_patience': 4,
+        'hidden_continuous_size': 8,
+        'learning_rate': 1e-2,
+        'gradient_clip_val': 0.7,
+    }, {
+        'hidden_size': 64,
+        'lstm_layers': 2,
+        'dropout': 0.3,
+        'attention_head_size': 3,
+        'reduce_on_plateau_patience': 4,
+        'hidden_continuous_size': 16,
+        'learning_rate': 1e-3,
+        'gradient_clip_val': 0.7,
+    }, {
+        'hidden_size': 64,
+        'lstm_layers': 2,
+        'dropout': 0.3,
+        'attention_head_size': 4,
+        'reduce_on_plateau_patience': 4,
+        'hidden_continuous_size': 32,
+        'learning_rate': 1e-2,
+        'gradient_clip_val': 0.5,
+    }, {
+        'hidden_size': 128,
+        'lstm_layers': 2,
+        'dropout': 0.3,
+        'attention_head_size': 4,
+        'reduce_on_plateau_patience': 4,
+        'hidden_continuous_size': 60,
+        'learning_rate': 1e-3,
+        'gradient_clip_val': 0.5,
+    }, ]
+
+    @staticmethod
+    def _evaluate(auto_ml, cur_wrapper):
+        print('Evaluating TFT')
+
+        prefix = 'TFT'
+
+        wrapper_list = []
+        y_val_matrix = auto_ml._create_validation_matrix(
+            cur_wrapper.validation[1].values.T)
+
+        for c, params in tdqm(enumerate(TFTWrapper.params_list)):
+            auto_ml.evaluation_results[prefix+str(c)] = {}
+            cur_wrapper.train(max_epochs=50, **params)
+
+            y_pred = np.array(cur_wrapper.predict(
+                cur_wrapper.validation[0],
+                future_steps=max(auto_ml.important_future_timesteps),
+                history=cur_wrapper.last_period,
+            ))[:, [-(n-1) for n in auto_ml.important_future_timesteps]]
+
+            y_pred = y_pred[:-max(auto_ml.important_future_timesteps), :]
+
+            a.evaluation_results[prefix +
+                                 str(c)]['default'] = auto_ml._evaluate_model(y_val_matrix.T.squeeze(), y_pred)
+
+            # quantile values
+            q_pred = np.array(cur_wrapper.predict(
+                cur_wrapper.validation[0],
+                future_steps=max(auto_ml.important_future_timesteps),
+                history=cur_wrapper.last_period,
+                quantile=True
+            ))[:, [-(n-1) for n in auto_ml.important_future_timesteps], :]
+
+            for i in range(len(auto_ml.quantiles)):
+                qi_pred = q_pred[:, :, i]
+                qi_pred = qi_pred[:-max(auto_ml.important_future_timesteps), :]
+                quantile = auto_ml.quantiles[i]
+
+                auto_ml.evaluation_results[prefix + str(c)][str(quantile)] = auto_ml._evaluate_model(
+                    y_val_matrix.T.squeeze(), qi_pred, quantile)
+
+            wrapper_list.append(copy.copy(cur_wrapper))
+
+        return prefix, wrapper_list

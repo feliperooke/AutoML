@@ -16,23 +16,23 @@ from .wrappers.LightGBMWrapper import LightGBMWrapper
 
 
 class AutoML:
-    def __init__(self, path, jobs=0, fillnan='ffill', nlags=24, model_constructors=[LightGBMWrapper], important_future_timesteps=[1], train_val_split=0.8):
+    def __init__(self, path, jobs=0, fillnan='ffill', nlags=24, wrapper_constructors=[LightGBMWrapper], important_future_timesteps=[1], train_val_split=0.8):
         """
         AutoML is an auto machine learning project with focus on predict
         time series using simple usage and high-level understanding over
         time series prediction methods.
 
-        :param path: 
+        :param path:
             Path to the input csv. The csv must be in the format (date, value).
 
         :param jobs:
             Number of jobs used during the training and evaluation.
 
-        :param model_constructors:
-            List with the constructors of all the models that will be used in this instance of AutoML.
+        :param wrapper_constructors:
+            List with the constructors of all the wrappers that will be used in this instance of AutoML.
 
         :param fillnan: {'bfill', 'ffill'}, default ffill
-            Method to use for filling holes. 
+            Method to use for filling holes.
             ffill: propagate last valid observation forward to next valid.
             bfill: use next valid observation to fill gap.
 
@@ -56,7 +56,8 @@ class AutoML:
         self.oldest_lag = 1
         self.train_val_split = train_val_split
         self.quantiles = [.1, .5, .9]
-        self.wrappers = {wr.__name__: wr(self) for wr in model_constructors}
+        self.wrapper_constructors = wrapper_constructors
+        self.wrappers = {wr.__name__: wr(self) for wr in wrapper_constructors}
         self.tft_wrapper = TFTWrapper(self)
         self.lightgbm_wrapper = LightGBMWrapper(self)
         self.important_future_timesteps = important_future_timesteps
@@ -119,6 +120,18 @@ class AutoML:
 
         return results
 
+    def _create_validation_matrix(val_y):
+        """
+        Function Creating the validation matrix.
+        """
+        y_val = []
+
+        for n in self.important_future_timesteps:
+            y_val.append(np.roll(val_y, -(n - 1)).T)
+
+        return np.array(y_val)[:,
+                               :-(max(self.important_future_timesteps))]
+
     def _evaluate(self):
         """
         Compare baseline models
@@ -126,174 +139,11 @@ class AutoML:
         """
         # Vamos fazer com os modelos sempre usando a api do Scikit Learn pq a gnt vai usar ele para o RandomSearch
 
-        # function creating the validation matrix
-        def create_validation_matrix(val_y):
-            y_val = []
+        wrapper_result_dict = {}
 
-            for n in self.important_future_timesteps:
-                y_val.append(np.roll(val_y, -(n - 1)).T)
-
-            return np.array(y_val)[:,
-                                   :-(max(self.important_future_timesteps))]
-
-        # TFT
-
-        tft_params_list = [{
-            'hidden_size': 16,
-            'lstm_layers': 1,
-            'dropout': 0.1,
-            'attention_head_size': 1,
-            'reduce_on_plateau_patience': 4,
-            'hidden_continuous_size': 8,
-            'learning_rate': 1e-3,
-            'gradient_clip_val': 0.1,
-        }, {
-            'hidden_size': 32,
-            'lstm_layers': 1,
-            'dropout': 0.2,
-            'attention_head_size': 2,
-            'reduce_on_plateau_patience': 4,
-            'hidden_continuous_size': 8,
-            'learning_rate': 1e-2,
-            'gradient_clip_val': 0.7,
-        }, {
-            'hidden_size': 64,
-            'lstm_layers': 2,
-            'dropout': 0.3,
-            'attention_head_size': 3,
-            'reduce_on_plateau_patience': 4,
-            'hidden_continuous_size': 16,
-            'learning_rate': 1e-3,
-            'gradient_clip_val': 0.7,
-        }, {
-            'hidden_size': 64,
-            'lstm_layers': 2,
-            'dropout': 0.3,
-            'attention_head_size': 4,
-            'reduce_on_plateau_patience': 4,
-            'hidden_continuous_size': 32,
-            'learning_rate': 1e-2,
-            'gradient_clip_val': 0.5,
-        }, {
-            'hidden_size': 128,
-            'lstm_layers': 2,
-            'dropout': 0.3,
-            'attention_head_size': 4,
-            'reduce_on_plateau_patience': 4,
-            'hidden_continuous_size': 60,
-            'learning_rate': 1e-3,
-            'gradient_clip_val': 0.5,
-        }, ]
-
-        print('Evaluating TFT')
-
-        tft_list = []
-        y_val_matrix = create_validation_matrix(
-            self.tft_wrapper.validation[1].values.T)
-
-        for c, params in enumerate(tft_params_list):
-            self.evaluation_results['TFT'+str(c)] = {}
-            self.tft_wrapper.train(max_epochs=50, **params)
-
-            y_pred = np.array(self.tft_wrapper.predict(
-                self.tft_wrapper.validation[0],
-                future_steps=max(self.important_future_timesteps),
-                history=self.tft_wrapper.last_period,
-            ))[:, [-(n-1) for n in self.important_future_timesteps]]
-
-            y_pred = y_pred[:-max(self.important_future_timesteps), :]
-
-            self.evaluation_results['TFT' +
-                                    str(c)]['default'] = self._evaluate_model(y_val_matrix.T.squeeze(), y_pred)
-
-            # quantile values
-            q_pred = np.array(self.tft_wrapper.predict(
-                self.tft_wrapper.validation[0],
-                future_steps=max(self.important_future_timesteps),
-                history=self.tft_wrapper.last_period,
-                quantile=True
-            ))[:, [-(n-1) for n in self.important_future_timesteps], :]
-
-            for i in range(len(self.quantiles)):
-                qi_pred = q_pred[:, :, i]
-                qi_pred = qi_pred[:-max(self.important_future_timesteps), :]
-                quantile = self.quantiles[i]
-
-                self.evaluation_results['TFT' + str(c)][str(quantile)] = self._evaluate_model(
-                    y_val_matrix.T.squeeze(), qi_pred, quantile)
-
-            tft_list.append(self.tft_wrapper)
-
-        # LightGBM
-
-        print('Evaluating LightGBM')
-
-        lgbm_params_list = [{
-            'num_leaves': 32,
-            'max_depth': 6,
-            'learning_rate': 0.001,
-            'num_iterations': 15000,
-            'n_estimators': 100,
-        }, {
-            'num_leaves': 64,
-            'max_depth': 8,
-            'learning_rate': 0.001,
-            'num_iterations': 15000,
-            'n_estimators': 200,
-        }, {
-            'num_leaves': 128,
-            'max_depth': 10,
-            'learning_rate': 0.001,
-            'num_iterations': 15000,
-            'n_estimators': 300,
-        }, {
-            'num_leaves': 128,
-            'max_depth': 8,
-            'learning_rate': 0.005,
-            'num_iterations': 15000,
-            'n_estimators': 200,
-        }, {
-            'num_leaves': 64,
-            'max_depth': 10,
-            'learning_rate': 0.001,
-            'num_iterations': 15000,
-            'n_estimators': 300,
-        }, ]
-
-        # using quantile prediction as default
-        quantile_params = {
-            'objective': 'quantile',
-            'metric': 'quantile',
-        }
-
-        lgbm_list = []
-        y_val_matrix = create_validation_matrix(
-            self.lightgbm_wrapper.validation[1].values)
-
-        for c, params in tqdm(enumerate(lgbm_params_list)):
-            self.evaluation_results['LightGBM'+str(c)] = {}
-            self.lightgbm_wrapper.train(params, quantile_params)
-
-            y_pred = np.array(self.lightgbm_wrapper.predict(
-                self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps)))[:, [-(n-1) for n in self.important_future_timesteps]]
-
-            y_pred = y_pred[:-max(self.important_future_timesteps), :]
-            self.evaluation_results['LightGBM' +
-                                    str(c)]['default'] = self._evaluate_model(y_val_matrix.T, y_pred)
-
-            # quantile values
-            q_pred = np.array(self.lightgbm_wrapper.predict(
-                self.lightgbm_wrapper.validation[0], max(self.important_future_timesteps), quantile=True))[:, [-(n-1) for n in self.important_future_timesteps], :]
-
-            for i in range(len(self.quantiles)):
-                quantile = self.quantiles[i]
-                qi_pred = q_pred[:, :, i]
-                qi_pred = qi_pred[:-max(self.important_future_timesteps), :]
-
-                self.evaluation_results['LightGBM' + str(c)][str(
-                    quantile)] = self._evaluate_model(y_val_matrix.T, qi_pred, quantile)
-
-            lgbm_list.append(self.lightgbm_wrapper)
+        for cur_wrapper, cur_constructor in zip(self.wrappers, self.wrapper_constructors):
+            prefix, wrapper_list = cur_constructor._evaluate(self, cur_wrapper)
+            wrapper_result_dict[prefix] = wrapper_list
 
         # Choose the best model comparing the default prediction metric results
         wape_values = {}
@@ -301,12 +151,10 @@ class AutoML:
             wape_values[x[0]] = x[1]['default']['wape']
         min_metric = min(wape_values, key=wape_values.get)
 
-        if 'LightGBM' in min_metric:
-            idx = int(min_metric[-1])
-            self.model = lgbm_list[idx]
-        elif 'TFT' in min_metric:
-            idx = int(min_metric[-1])
-            self.model = tft_list[idx]
+        for prefix in sorted(list(wrapper_result_dict.keys()), key=lambda x: len(x), reverse=True):
+            if prefix in min_metric:
+                idx = int(min_metric[-1])
+                self.model = wrapper_result_dict[prefix][idx]
 
     def predict(self, X, future_steps, quantile=False, history=[]):
         """
