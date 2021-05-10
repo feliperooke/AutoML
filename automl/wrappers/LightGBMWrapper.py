@@ -135,9 +135,9 @@ class LightGBMWrapper(BaseWrapper):
 
     @staticmethod
     def _evaluate(auto_ml, cur_wrapper):
-        print('Evaluating LightGBM')
-
         prefix = 'LightGBM'
+
+        print(f'Evaluating {prefix}')
 
         wrapper_list = []
         y_val_matrix = auto_ml._create_validation_matrix(

@@ -303,9 +303,9 @@ class TFTWrapper(BaseWrapper):
 
     @staticmethod
     def _evaluate(auto_ml, cur_wrapper):
-        print('Evaluating TFT')
-
         prefix = 'TFT'
+
+        print(f'Evaluating {prefix}')
 
         wrapper_list = []
         y_val_matrix = auto_ml._create_validation_matrix(
