@@ -179,42 +179,7 @@ class AutoML:
         if(len(X) < self.oldest_lag):
             raise Exception(f'''Error, to make a prediction X needs to be at
                                 least {self.oldest_lag} items long''')
-
-        if isinstance(self.model, LightGBMWrapper):
-            X = self._data_shift.transform(X)
-            X = X.drop(self.index_label, axis=1)
-            y = self.model.predict(
-                X, future_steps, quantile=quantile)
-            return y
-
-        # Prediction
-        if isinstance(self.model, TFTWrapper):
-            if not isinstance(history, pd.DataFrame) or len(history) < self.oldest_lag * 2:
-                raise Exception(f'''To make a prediction with TFT, the history parameter must
-                                be a dataframe sample with at least 2 times the {self.oldest_lag} long''')
-            y = self.model.predict(
-                X, future_steps, history=history, quantile=quantile)
-            return y
-
-        else:
-            y = []
-            for _ in range(future_steps):
-
-                if quantile:  # predict with quantile models
-                    predict = []
-                    for quantile_model in self.quantile_models:
-                        predict.append(quantile_model.predict(
-                            cur_X[-1].reshape(1, -1)))
-                    y.append(predict)
-
-                    # choose the median prediction to feed the new predictions
-                    predict = predict[1]
-
-                else:  # predict with mean model
-                    predict = self.model.predict(cur_X[-1].reshape(1, -1))
-                    y.append(predict)
-                new_input = np.append(cur_X[-1][1:], predict, axis=0)
-                cur_X = np.append(cur_X, [new_input], axis=0)
+        y = self.model.auto_ml_predict(X, future_steps, quantile, history)
 
         return y
 
@@ -229,7 +194,4 @@ class AutoML:
             Use quantile models instead of the mean based.
 
         """
-        if isinstance(self.model, LightGBMWrapper):
-            return self.model.next(future_steps, quantile=quantile)
-        if isinstance(self.model, TFTWrapper):
-            return self.model.next(X=self.data, future_steps=future_steps, quantile=quantile)
+        return self.model.next(self.data, future_steps, quantile)

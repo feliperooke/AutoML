@@ -223,7 +223,15 @@ class TFTWrapper(BaseWrapper):
 
         return predictions
 
-    def next(self, X, future_steps, quantile=False):
+    def auto_ml_predict(self, X, future_steps, quantile, history):
+        if not isinstance(history, pd.DataFrame) or len(history) < self.model.oldest_lag * 2:
+            raise Exception(f'''To make a prediction with TFT, the history parameter must
+                            be a dataframe sample with at least 2 times the {self.model.oldest_lag} long''')
+        y = self.predict(
+            X, future_steps, history=history, quantile=quantile)
+        return y
+
+    def next(self, X, future_steps, quantile):
 
         self._verify_target_column(X)
 

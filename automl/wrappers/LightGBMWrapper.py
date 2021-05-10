@@ -85,7 +85,13 @@ class LightGBMWrapper(BaseWrapper):
 
         return Y_hat
 
-    def next(self, future_steps, quantile=False):
+    def auto_ml_predict(self, X, future_steps, quantile, history):
+        X = self.automl._data_shift.transform(X)
+        X = X.drop(self.index_label, axis=1)
+        y = self.predict(X, future_steps, quantile=quantile)
+        return y
+
+    def next(self, X, future_steps, quantile):
         return self.predict(self.last_x, future_steps, quantile=quantile)
 
     # Static Values and Methods
