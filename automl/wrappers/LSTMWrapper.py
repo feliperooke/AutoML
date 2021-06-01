@@ -6,6 +6,7 @@ from keras.models import Sequential
 from keras.layers import LSTM
 from keras.layers import Dense
 from sklearn.model_selection import train_test_split
+from ..metrics import weighted_quantile_loss
 
 
 class LSTMWrapper(BaseWrapper):
@@ -28,10 +29,15 @@ class LSTMWrapper(BaseWrapper):
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, train_size=self.automl.train_val_split, shuffle=False)
 
-        self.training = (X_train, y_train)
-        self.validation = (X_test, y_test)
+        X_train = np.reshape(
+            X_train.values, (X_train.shape[0], X_train.shape[1], 1))
+        X_test = np.reshape(
+            X_test.values, (X_test.shape[0], X_test.shape[1], 1))
 
-    def create_model(self, layers, optimizer='adam', activation='relu'):
+        self.training = (X_train, y_train.values)
+        self.validation = (X_test, y_test.values)
+
+    def create_model(self, layers, optimizer='adam', activation='relu', loss='mse'):
         lstm_model = Sequential()
         if(len(layers) > 2):
             lstm_model.add(LSTM(layers[0], activation=activation, input_shape=(
@@ -51,19 +57,20 @@ class LSTMWrapper(BaseWrapper):
                 self.oldest_lag, 1)))
 
         lstm_model.add(Dense(1))
-        lstm_model.compile(optimizer=optimizer, loss='mse')
+        lstm_model.compile(optimizer=optimizer, loss=loss)
 
         return lstm_model
 
-    def train(self, model_params, quantile_params):
+    def train(self, model_params):
+        self.qmodels = []
+        for quantil in self.quantiles:
+            qmodel = self.create_model(
+                **model_params, loss=lambda y, y_hat: weighted_quantile_loss(quantil, y, y_hat))
+            qmodel.fit(self.training[0], y=self.training[1],
+                       epochs=30, batch_size=32, verbose=0)
+            self.qmodels.append(qmodel)
 
-        self.qmodels = [lgb.LGBMRegressor(alpha=quantil, **model_params, **quantile_params)
-                        for quantil in self.quantiles]
-
-        for qmodel in self.qmodels:
-            qmodel.fit(self.training[0], self.training[1])
-
-        self.model = lgb.LGBMRegressor(**model_params)
+        self.model = self.create_model(**model_params)
         self.model.fit(self.training[0], self.training[1])
 
     def predict(self, X, future_steps, quantile=False):
@@ -86,30 +93,25 @@ class LSTMWrapper(BaseWrapper):
 
         Y_hat = np.zeros((len(X), future_steps, len(self.quantiles))
                          ) if quantile else np.zeros((len(X), future_steps))
+
+        cur_X = X.copy()
+
         if quantile:
-            for i, x in enumerate(X.values):
-                cur_x = x.copy()
-                for step in range(future_steps):
-                    for j, qmodel in enumerate(self.qmodels):
-                        cur_y_hat = qmodel.predict(
-                            cur_x[self.past_lags].reshape(1, -1))
-                        Y_hat[i, step, j] = cur_y_hat
-                    new_x = self.model.predict(
-                        cur_x[self.past_lags].reshape(1, -1))
-                    cur_x = np.roll(cur_x, -1)
-                    cur_x[-1] = new_x
+            for step in range(future_steps):
+                for j, qmodel in enumerate(self.qmodels):
+                    Y_hat[:, step, j] = qmodel.predict(cur_X)
+                cur_X = np.roll(cur_X, -1, axis=1)
+                cur_X[:, -1, 0] = self.model.predict(cur_X)
 
         else:
-            for i, x in enumerate(X.values):
-                cur_x = x.copy()
-                for step in range(future_steps):
-                    cur_y_hat = self.model.predict(
-                        cur_x[self.past_lags].reshape(1, -1))
-                    Y_hat[i, step] = cur_y_hat
-                    cur_x = np.roll(cur_x, -1)
-                    cur_x[-1] = cur_y_hat
+            for step in range(future_steps):
+                Y_hat[:, step] = self.model.predict(cur_X)
+                cur_x = np.roll(cur_x, -1)
+                cur_X[:, -1, 0] = Y_hat[:, step]
 
         return Y_hat
+
+    # TODO: Stopped here
 
     def auto_ml_predict(self, X, future_steps, quantile, history):
         X = self.automl._data_shift.transform(X)
