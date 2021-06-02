@@ -120,7 +120,7 @@ class AutoML:
 
         return results
 
-    def _create_validation_matrix(val_y):
+    def _create_validation_matrix(self, val_y):
         """
         Function Creating the validation matrix.
         """
@@ -141,7 +141,7 @@ class AutoML:
 
         wrapper_result_dict = {}
 
-        for cur_wrapper, cur_constructor in zip(self.wrappers, self.wrapper_constructors):
+        for cur_wrapper, cur_constructor in zip(self.wrappers.values(), self.wrapper_constructors):
             prefix, wrapper_list = cur_constructor._evaluate(self, cur_wrapper)
             wrapper_result_dict[prefix] = wrapper_list
 
