@@ -2,11 +2,11 @@ from .BaseWrapper import BaseWrapper
 from tqdm import tqdm
 import copy
 import numpy as np
-import lightgbm as lgb
+import xgboost as xgb
 from sklearn.model_selection import train_test_split
 
 
-class LightGBMWrapper(BaseWrapper):
+class XGBoostWrapper(BaseWrapper):
     def __init__(self, automl_instance):
         super().__init__(automl_instance)
 
@@ -31,13 +31,13 @@ class LightGBMWrapper(BaseWrapper):
 
     def train(self, model_params, quantile_params):
 
-        self.qmodels = [lgb.LGBMRegressor(alpha=quantil, **model_params, **quantile_params)
+        self.qmodels = [xgb.XGBRegressor(alpha=quantil, **model_params, **quantile_params)
                         for quantil in self.quantiles]
 
         for qmodel in self.qmodels:
             qmodel.fit(self.training[0], self.training[1])
 
-        self.model = lgb.LGBMRegressor(**model_params)
+        self.model = xgb.XGBRegressor(**model_params)
         self.model.fit(self.training[0], self.training[1])
 
     def predict(self, X, future_steps, quantile=False):
@@ -97,35 +97,29 @@ class LightGBMWrapper(BaseWrapper):
     # Static Values and Methods
 
     params_list = [{
-        'num_leaves': 32,
-        'max_depth': 6,
-        'learning_rate': 0.001,
-        'num_iterations': 15000,
+        'max_depth': 3,
+        'learning_rate': 0.1,
         'n_estimators': 100,
     }, {
-        'num_leaves': 64,
-        'max_depth': 8,
-        'learning_rate': 0.001,
-        'num_iterations': 15000,
-        'n_estimators': 200,
+        'max_depth': 3,
+        'learning_rate': 0.3,
+        'n_estimators': 120,
     }, {
-        'num_leaves': 128,
-        'max_depth': 10,
-        'learning_rate': 0.001,
-        'num_iterations': 15000,
-        'n_estimators': 300,
+        'max_depth': 4,
+        'learning_rate': 0.1,
+        'n_estimators': 100,
     }, {
-        'num_leaves': 128,
-        'max_depth': 8,
-        'learning_rate': 0.005,
-        'num_iterations': 15000,
-        'n_estimators': 200,
+        'max_depth': 4,
+        'learning_rate': 0.3,
+        'n_estimators': 80,
     }, {
-        'num_leaves': 64,
-        'max_depth': 10,
-        'learning_rate': 0.001,
-        'num_iterations': 15000,
-        'n_estimators': 300,
+        'max_depth': 5,
+        'learning_rate': 0.1,
+        'n_estimators': 100,
+    }, {
+        'max_depth': 5,
+        'learning_rate': 0.3,
+        'n_estimators': 80,
     }, ]
 
     quantile_params = {
@@ -135,7 +129,7 @@ class LightGBMWrapper(BaseWrapper):
 
     @staticmethod
     def _evaluate(auto_ml, cur_wrapper):
-        prefix = 'LightGBM'
+        prefix = 'XGBoost'
 
         print(f'Evaluating {prefix}')
 
@@ -143,9 +137,9 @@ class LightGBMWrapper(BaseWrapper):
         y_val_matrix = auto_ml._create_validation_matrix(
             cur_wrapper.validation[1].values.T)
 
-        for c, params in tqdm(enumerate(LightGBMWrapper.params_list)):
+        for c, params in tqdm(enumerate(XGBoostWrapper.params_list)):
             auto_ml.evaluation_results[prefix+str(c)] = {}
-            cur_wrapper.train(params, LightGBMWrapper.quantile_params)
+            cur_wrapper.train(params, XGBoostWrapper.quantile_params)
 
             y_pred = np.array(cur_wrapper.predict(
                 cur_wrapper.validation[0], max(auto_ml.important_future_timesteps)))[:, [-(n-1) for n in auto_ml.important_future_timesteps]]
