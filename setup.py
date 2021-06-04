@@ -12,7 +12,11 @@ setup(
         'torch',
         'pytorch-forecasting',
         'pytorch_lightning',
-        'tqdm'
+        'tqdm',
+        'xgboost',
+        'catboost',
+        'keras',
+        'tensorflow'
     ],
     version='0.1.0',
     description='Auto machine learning project with focus on predict time series.',

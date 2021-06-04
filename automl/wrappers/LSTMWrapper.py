@@ -23,8 +23,8 @@ class LSTMWrapper(BaseWrapper):
         self.last_x = data.drop(
             [self.index_label, self.target_label], axis=1).tail(1)
 
-        X = data[self.past_labels]
-        y = data[self.target_label]
+        X = self.data[self.past_labels]
+        y = self.data[self.target_label]
 
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, train_size=self.automl.train_val_split, shuffle=False)
@@ -40,22 +40,22 @@ class LSTMWrapper(BaseWrapper):
     def create_model(self, layers, optimizer='adam', activation='relu', loss='mse'):
         lstm_model = Sequential()
         if(len(layers) > 2):
-            lstm_model.add(LSTM(layers[0]*self.oldest_lag, input_shape=(
+            lstm_model.add(LSTM(int(layers[0]*self.oldest_lag), input_shape=(
                 self.oldest_lag, 1), return_sequences=True))
             for layer in layers[1:-1]:
                 lstm_model.add(
-                    LSTM(layer*self.oldest_lag, return_sequences=True))
+                    LSTM(int(layer*self.oldest_lag), return_sequences=True))
             lstm_model.add(
-                LSTM(layers[-1]*self.oldest_lag, activation=activation))
+                LSTM(int(layers[-1]*self.oldest_lag), activation=activation))
 
         elif(len(layers) == 2):
-            lstm_model.add(LSTM(layers[0]*self.oldest_lag, input_shape=(
+            lstm_model.add(LSTM(int(layers[0]*self.oldest_lag), input_shape=(
                 self.oldest_lag, 1), return_sequences=True))
             lstm_model.add(
-                LSTM(layers[1]*self.oldest_lag, activation=activation))
+                LSTM(int(layers[1]*self.oldest_lag), activation=activation))
 
         elif(len(layers) == 1):
-            lstm_model.add(LSTM(layers[0]*self.oldest_lag, activation=activation, input_shape=(
+            lstm_model.add(LSTM(int(layers[0]*self.oldest_lag), activation=activation, input_shape=(
                 self.oldest_lag, 1)))
 
         lstm_model.add(Dense(1))
@@ -68,6 +68,11 @@ class LSTMWrapper(BaseWrapper):
         for quantil in self.quantiles:
             qmodel = self.create_model(
                 **model_params, loss=lambda y, y_hat: weighted_quantile_loss(quantil, y, y_hat))
+            print(type(self.training[0]))
+            print(self.training[0].shape)
+            print('------------')
+            print(type(self.training[1]))
+            print(self.training[1].shape)
             qmodel.fit(self.training[0], y=self.training[1],
                        epochs=30, batch_size=32, verbose=0)
             self.qmodels.append(qmodel)
@@ -147,7 +152,7 @@ class LSTMWrapper(BaseWrapper):
 
         wrapper_list = []
         y_val_matrix = auto_ml._create_validation_matrix(
-            cur_wrapper.validation[1].values.T)
+            cur_wrapper.validation[1].T)
 
         for c, params in tqdm(enumerate(LSTMWrapper.params_list)):
             auto_ml.evaluation_results[prefix+str(c)] = {}

@@ -6,6 +6,7 @@ from pytorch_forecasting.metrics import QuantileLoss
 from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
 from sklearn.model_selection import train_test_split
 import pandas as pd
+import numpy as np
 from .BaseWrapper import BaseWrapper
 
 
@@ -311,7 +312,7 @@ class TFTWrapper(BaseWrapper):
         y_val_matrix = auto_ml._create_validation_matrix(
             cur_wrapper.validation[1].values.T)
 
-        for c, params in tdqm(enumerate(TFTWrapper.params_list)):
+        for c, params in tqdm(enumerate(TFTWrapper.params_list)):
             auto_ml.evaluation_results[prefix+str(c)] = {}
             cur_wrapper.train(max_epochs=50, **params)
 

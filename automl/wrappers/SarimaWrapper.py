@@ -38,11 +38,11 @@ class SarimaWrapper(BaseWrapper):
         # set parameter range
         number_of_possibilities = min([len(self.past_lags), 5])
         
-        q_possibilities = list(self.past_lags)
-        q_possibilities.remove(self.seasonality) # removing the lag duplication
-        p = random.sample(q_possibilities, number_of_possibilities-1)
+        lag_possibilities = list(self.past_lags)
+        lag_possibilities.remove(self.seasonality) # removing the lag duplication
+        p = random.sample(lag_possibilities, number_of_possibilities-1)
         d = random.sample(list(self.past_lags), number_of_possibilities)
-        q = random.sample(q_possibilities, number_of_possibilities-1)
+        q = random.sample(lag_possibilities, number_of_possibilities-1)
 
         # list of all parameter combos
         pdq = list(itertools.product(p, d, q))

@@ -20,8 +20,8 @@ class XGBoostWrapper(BaseWrapper):
         self.last_x = data.drop(
             [self.index_label, self.target_label], axis=1).tail(1)
 
-        X = data[self.past_labels]
-        y = data[self.target_label]
+        X = self.data[self.past_labels]
+        y = self.data[self.target_label]
 
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, train_size=self.automl.train_val_split, shuffle=False)
