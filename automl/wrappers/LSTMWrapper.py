@@ -40,20 +40,22 @@ class LSTMWrapper(BaseWrapper):
     def create_model(self, layers, optimizer='adam', activation='relu', loss='mse'):
         lstm_model = Sequential()
         if(len(layers) > 2):
-            lstm_model.add(LSTM(layers[0], activation=activation, input_shape=(
+            lstm_model.add(LSTM(layers[0]*self.oldest_lag, input_shape=(
                 self.oldest_lag, 1), return_sequences=True))
             for layer in layers[1:-1]:
                 lstm_model.add(
-                    LSTM(layer, activation=activation, return_sequences=True))
-            lstm_model.add(LSTM(layers[-1], activation=activation))
+                    LSTM(layer*self.oldest_lag, return_sequences=True))
+            lstm_model.add(
+                LSTM(layers[-1]*self.oldest_lag, activation=activation))
 
         elif(len(layers) == 2):
-            lstm_model.add(LSTM(layers[0], activation=activation, input_shape=(
+            lstm_model.add(LSTM(layers[0]*self.oldest_lag, input_shape=(
                 self.oldest_lag, 1), return_sequences=True))
-            lstm_model.add(LSTM(layers[1], activation=activation))
+            lstm_model.add(
+                LSTM(layers[1]*self.oldest_lag, activation=activation))
 
         elif(len(layers) == 1):
-            lstm_model.add(LSTM(layers[0], activation=activation, input_shape=(
+            lstm_model.add(LSTM(layers[0]*self.oldest_lag, activation=activation, input_shape=(
                 self.oldest_lag, 1)))
 
         lstm_model.add(Dense(1))
@@ -111,11 +113,10 @@ class LSTMWrapper(BaseWrapper):
 
         return Y_hat
 
-    # TODO: Stopped here
-
     def auto_ml_predict(self, X, future_steps, quantile, history):
         X = self.automl._data_shift.transform(X)
         X = X.drop(self.index_label, axis=1)
+        X = np.reshape(X.values, (X.shape[0], X.shape[1], 1))
         y = self.predict(X, future_steps, quantile=quantile)
         return y
 
@@ -124,46 +125,23 @@ class LSTMWrapper(BaseWrapper):
 
     # Static Values and Methods
 
+    # layers, optimizer='adam', activation='relu'
+    # Here layers is a list of the amount of nodes in each layer. This number will be multiplied by the oldest lag being used
     params_list = [{
-        'num_leaves': 32,
-        'max_depth': 6,
-        'learning_rate': 0.001,
-        'num_iterations': 15000,
-        'n_estimators': 100,
+        "layers": [1, .7, .4],
     }, {
-        'num_leaves': 64,
-        'max_depth': 8,
-        'learning_rate': 0.001,
-        'num_iterations': 15000,
-        'n_estimators': 200,
+        "layers": [1, .5],
     }, {
-        'num_leaves': 128,
-        'max_depth': 10,
-        'learning_rate': 0.001,
-        'num_iterations': 15000,
-        'n_estimators': 300,
+        "layers": [1.2, .8, .4],
     }, {
-        'num_leaves': 128,
-        'max_depth': 8,
-        'learning_rate': 0.005,
-        'num_iterations': 15000,
-        'n_estimators': 200,
+        "layers": [1.2, 1, .7, .3],
     }, {
-        'num_leaves': 64,
-        'max_depth': 10,
-        'learning_rate': 0.001,
-        'num_iterations': 15000,
-        'n_estimators': 300,
-    }, ]
-
-    quantile_params = {
-        'objective': 'quantile',
-        'metric': 'quantile',
-    }
+        "layers": [.8, .5, .3],
+    }]
 
     @staticmethod
     def _evaluate(auto_ml, cur_wrapper):
-        prefix = 'LightGBM'
+        prefix = 'LSTM'
 
         print(f'Evaluating {prefix}')
 
@@ -173,7 +151,7 @@ class LSTMWrapper(BaseWrapper):
 
         for c, params in tqdm(enumerate(LSTMWrapper.params_list)):
             auto_ml.evaluation_results[prefix+str(c)] = {}
-            cur_wrapper.train(params, LSTMWrapper.quantile_params)
+            cur_wrapper.train(params)
 
             y_pred = np.array(cur_wrapper.predict(
                 cur_wrapper.validation[0], max(auto_ml.important_future_timesteps)))[:, [-(n-1) for n in auto_ml.important_future_timesteps]]
