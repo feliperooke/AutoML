@@ -16,3 +16,6 @@ xgboost
 catboost
 keras
 tensorflow
+convertdate
+pystan==2.19.0.0
+prophet

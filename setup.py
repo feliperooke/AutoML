@@ -17,6 +17,8 @@ setup(
         'catboost',
         'keras',
         'tensorflow'
+        'convertdate',
+        'prophet',
     ],
     version='0.1.0',
     description='Auto machine learning project with focus on predict time series.',
