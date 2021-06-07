@@ -4,11 +4,15 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import copy
+import logging
 
 
 class ProphetWrapper(BaseWrapper):
     def __init__(self, automl_instance):
         super().__init__(automl_instance)
+        
+        # passing info to warning level
+        logging.getLogger('fbprophet').setLevel(logging.WARNING)
 
     def transform_data(self, data):
         self.data = data
