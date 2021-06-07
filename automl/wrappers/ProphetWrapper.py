@@ -33,6 +33,7 @@ class ProphetWrapper(BaseWrapper):
 
         self.training = self.data.iloc[:train_size]
         self.validation = self.data.iloc[train_size:]
+        self.last_x = self.validation.iloc[[-1]]
 
     def train(self, model_params):
         # uncertainty_samples = False to speed up the prediction
@@ -88,8 +89,16 @@ class ProphetWrapper(BaseWrapper):
         return Y_hat
 
     def auto_ml_predict(self, X, future_steps, quantile, history):
-        X = self.automl._data_shift.transform(X)
-        X = X.drop(self.index_label, axis=1)
+        # date column to datetime type
+        X[self.index_label] = pd.to_datetime(X[self.index_label])
+        # removing timezone
+        X[self.index_label] = X[self.index_label].dt.tz_localize(None)
+
+        X.rename(columns={
+            self.index_label: 'ds',
+            self.target_label: 'y'
+        }, inplace=True)
+
         y = self.predict(X, future_steps, quantile=quantile)
         return y
 
