@@ -1,17 +1,9 @@
-from lightgbm.sklearn import LGBMRegressor
 import pandas as pd
 import numpy as np
-import lightgbm as lgb
-from tqdm import tqdm
 import warnings
 from sklearn.metrics import mean_squared_error
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor
-from pytorch_forecasting.metrics import QuantileLoss
-from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
 from .metrics import weighted_quantile_loss, weighted_absolute_percentage_error
 from .transformer import DataShift
-from .wrappers.TFTWrapper import TFTWrapper
 from .wrappers.LightGBMWrapper import LightGBMWrapper
 
 
@@ -58,8 +50,6 @@ class AutoML:
         self.quantiles = [.1, .5, .9]
         self.wrapper_constructors = wrapper_constructors
         self.wrappers = {wr.__name__: wr(self) for wr in wrapper_constructors}
-        self.tft_wrapper = TFTWrapper(self)
-        self.lightgbm_wrapper = LightGBMWrapper(self)
         self.important_future_timesteps = important_future_timesteps
 
         if len(self.data.columns) > 2:
