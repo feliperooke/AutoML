@@ -183,6 +183,8 @@ class TFTWrapper(BaseWrapper):
             # short cut the auto feed prediction with more reliable prediction
             predict = self.model.predict(cur_X, mode=mode)[0].numpy().tolist()
             for new_value in predict:
+                if quantile:
+                    new_value = new_value[1]
                 cur_X = append_new_data(cur_X, new_value, date_step)
             y = predict
 
@@ -225,9 +227,9 @@ class TFTWrapper(BaseWrapper):
         return predictions
 
     def auto_ml_predict(self, X, future_steps, quantile, history):
-        if not isinstance(history, pd.DataFrame) or len(history) < self.model.oldest_lag * 2:
+        if not isinstance(history, pd.DataFrame) or len(history) < self.oldest_lag * 2:
             raise Exception(f'''To make a prediction with TFT, the history parameter must
-                            be a dataframe sample with at least 2 times the {self.model.oldest_lag} long''')
+                            be a dataframe sample with at least 2 times the {self.oldest_lag} long''')
         y = self.predict(
             X, future_steps, history=history, quantile=quantile)
         return y
@@ -324,7 +326,7 @@ class TFTWrapper(BaseWrapper):
 
             y_pred = y_pred[:-max(auto_ml.important_future_timesteps), :]
 
-            a.evaluation_results[prefix +
+            auto_ml.evaluation_results[prefix +
                                  str(c)]['default'] = auto_ml._evaluate_model(y_val_matrix.T.squeeze(), y_pred)
 
             # quantile values
