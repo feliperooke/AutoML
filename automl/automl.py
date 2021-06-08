@@ -97,7 +97,7 @@ class AutoML:
         self.oldest_lag = int(max(self._data_shift.past_lags)) + 1
 
         for wrapper in self.wrappers.values():
-            wrapper.transform_data(data)
+            wrapper.transform_data(data.copy())
 
     def _evaluate_model(self, y_val, y_pred, quantile=None):
         """
