@@ -29,9 +29,9 @@ class CatBoostWrapper(BaseWrapper):
         self.training = (X_train, y_train)
         self.validation = (X_test, y_test)
 
-    def train(self, model_params, quantile_params):
+    def train(self, model_params):
 
-        self.qmodels = [cat.CatBoostRegressor(alpha=quantil, **model_params, **quantile_params)
+        self.qmodels = [cat.CatBoostRegressor(**model_params, loss_function=f"Quantile:alpha={quantil}")
                         for quantil in self.quantiles]
 
         for qmodel in self.qmodels:
@@ -121,11 +121,6 @@ class CatBoostWrapper(BaseWrapper):
         'learning_rate': 0.3,
         'l2_leaf_reg': 10,
     }, ]
-
-    quantile_params = {
-        'objective': 'quantile',
-        'metric': 'Quantile',
-    }
 
     @staticmethod
     def _evaluate(auto_ml, cur_wrapper):
