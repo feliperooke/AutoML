@@ -16,7 +16,7 @@ setup(
         'xgboost',
         'catboost',
         'keras',
-        'tensorflow'
+        'tensorflow',
         'convertdate',
         'prophet',
     ],
