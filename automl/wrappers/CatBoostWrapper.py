@@ -134,7 +134,7 @@ class CatBoostWrapper(BaseWrapper):
 
         for c, params in tqdm(enumerate(CatBoostWrapper.params_list)):
             auto_ml.evaluation_results[prefix+str(c)] = {}
-            cur_wrapper.train(params, CatBoostWrapper.quantile_params)
+            cur_wrapper.train(params)
 
             y_pred = np.array(cur_wrapper.predict(
                 cur_wrapper.validation[0], max(auto_ml.important_future_timesteps)))[:, [-(n-1) for n in auto_ml.important_future_timesteps]]

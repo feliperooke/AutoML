@@ -65,17 +65,17 @@ class LSTMWrapper(BaseWrapper):
 
     def train(self, model_params):
         self.qmodels = []
-        for quantil in self.quantiles:
-            qmodel = self.create_model(
-                **model_params, loss=lambda y, y_hat: weighted_quantile_loss(quantil, y, y_hat))
-            print(type(self.training[0]))
-            print(self.training[0].shape)
-            print('------------')
-            print(type(self.training[1]))
-            print(self.training[1].shape)
-            qmodel.fit(self.training[0], y=self.training[1],
-                       epochs=30, batch_size=32, verbose=0)
-            self.qmodels.append(qmodel)
+        # for quantil in self.quantiles:
+        #     qmodel = self.create_model(
+        #         **model_params, loss=lambda y, y_hat: weighted_quantile_loss(quantil, y, y_hat))
+            # print(type(self.training[0]))
+            # print(self.training[0].shape)
+            # print('------------')
+            # print(type(self.training[1]))
+            # print(self.training[1].shape)
+            # qmodel.fit(self.training[0], y=self.training[1],
+            #            epochs=30, batch_size=32, verbose=0)
+            # self.qmodels.append(qmodel)
 
         self.model = self.create_model(**model_params)
         self.model.fit(self.training[0], self.training[1])
@@ -112,8 +112,8 @@ class LSTMWrapper(BaseWrapper):
 
         else:
             for step in range(future_steps):
-                Y_hat[:, step] = self.model.predict(cur_X)
-                cur_x = np.roll(cur_x, -1)
+                Y_hat[:, step] = np.squeeze(self.model.predict(cur_X))
+                cur_X = np.roll(cur_X, -1)
                 cur_X[:, -1, 0] = Y_hat[:, step]
 
         return Y_hat
@@ -166,16 +166,16 @@ class LSTMWrapper(BaseWrapper):
                                        str(c)]['default'] = auto_ml._evaluate_model(y_val_matrix.T, y_pred)
 
             # quantile values
-            q_pred = np.array(cur_wrapper.predict(
-                cur_wrapper.validation[0], max(auto_ml.important_future_timesteps), quantile=True))[:, [-(n-1) for n in auto_ml.important_future_timesteps], :]
+            # q_pred = np.array(cur_wrapper.predict(
+            #     cur_wrapper.validation[0], max(auto_ml.important_future_timesteps), quantile=True))[:, [-(n-1) for n in auto_ml.important_future_timesteps], :]
 
-            for i in range(len(auto_ml.quantiles)):
-                quantile = auto_ml.quantiles[i]
-                qi_pred = q_pred[:, :, i]
-                qi_pred = qi_pred[:-max(auto_ml.important_future_timesteps), :]
+            # for i in range(len(auto_ml.quantiles)):
+            #     quantile = auto_ml.quantiles[i]
+            #     qi_pred = q_pred[:, :, i]
+            #     qi_pred = qi_pred[:-max(auto_ml.important_future_timesteps), :]
 
-                auto_ml.evaluation_results[prefix + str(c)][str(
-                    quantile)] = auto_ml._evaluate_model(y_val_matrix.T, qi_pred, quantile)
+            #     auto_ml.evaluation_results[prefix + str(c)][str(
+            #         quantile)] = auto_ml._evaluate_model(y_val_matrix.T, qi_pred, quantile)
 
             wrapper_list.append(copy.copy(cur_wrapper))
 
