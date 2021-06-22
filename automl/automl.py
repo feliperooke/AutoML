@@ -47,7 +47,6 @@ class AutoML:
         self.index_label = None
         self.oldest_lag = 1
         self.train_val_split = train_val_split
-        self.quantiles = [.1, .5, .9]
         self.wrapper_constructors = wrapper_constructors
         self.wrappers = {wr.__name__: wr(self) for wr in wrapper_constructors}
         self.important_future_timesteps = important_future_timesteps
@@ -89,24 +88,20 @@ class AutoML:
         for wrapper in self.wrappers.values():
             wrapper.transform_data(data.copy())
 
-    def _evaluate_model(self, y_val, y_pred, quantile=None):
+    def _evaluate_model(self, y_val, y_pred):
         """
         Evaluate a specifc model given the data to be tested.
 
         :param model: Model to be evaluated.
         :param X_val: X input to generate the predictions.
         :param y_val: y values that represents the real values.
-        :param quantile: Quantile value that will be evaluated.
 
         """
 
         results = {}
 
-        if quantile is not None:
-            results['wql'] = weighted_quantile_loss(quantile, y_val, y_pred)
-        else:
-            results['wape'] = weighted_absolute_percentage_error(y_val, y_pred)
-            results['rmse'] = mean_squared_error(y_val, y_pred, squared=False)
+        results['wape'] = weighted_absolute_percentage_error(y_val, y_pred)
+        results['rmse'] = mean_squared_error(y_val, y_pred, squared=False)
 
         return results
 
@@ -138,7 +133,7 @@ class AutoML:
         # Choose the best model comparing the default prediction metric results
         wape_values = {}
         for x in self.evaluation_results.items():
-            wape_values[x[0]] = x[1]['default']['wape']
+            wape_values[x[0]] = x[1]['wape']
         min_metric = min(wape_values, key=wape_values.get)
 
         for prefix in sorted(list(wrapper_result_dict.keys()), key=lambda x: len(x), reverse=True):
@@ -146,7 +141,7 @@ class AutoML:
                 idx = int(min_metric[-1])
                 self.model = wrapper_result_dict[prefix][idx]
 
-    def predict(self, X, future_steps, quantile=False, history=[]):
+    def predict(self, X, future_steps, history=[]):
         """
         Uses the input "X" to predict "future_steps" steps into the future.
 
@@ -155,9 +150,6 @@ class AutoML:
 
         :param future_steps:
             Number of steps in the future to predict.
-
-        :param quantile:
-            Use quantile models instead of the mean based.
 
         :param history:
             History buffer that will be used to as base to new predictions.
@@ -169,11 +161,11 @@ class AutoML:
         if(len(X) < self.oldest_lag):
             raise Exception(f'''Error, to make a prediction X needs to be at
                                 least {self.oldest_lag} items long''')
-        y = self.model.auto_ml_predict(X, future_steps, quantile, history)
+        y = self.model.auto_ml_predict(X, future_steps, history)
 
         return y
 
-    def next(self, future_steps, quantile=False):
+    def next(self, future_steps):
         """
         Predicts the next "future_steps" steps into the future using the data inserted for training.
 
@@ -184,4 +176,4 @@ class AutoML:
             Use quantile models instead of the mean based.
 
         """
-        return self.model.next(self.data, future_steps, quantile)
+        return self.model.next(self.data, future_steps)

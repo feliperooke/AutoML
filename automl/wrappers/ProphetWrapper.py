@@ -10,7 +10,7 @@ import logging
 class ProphetWrapper(BaseWrapper):
     def __init__(self, automl_instance):
         super().__init__(automl_instance)
-        
+
         # passing info to warning level
         logging.getLogger('fbprophet').setLevel(logging.WARNING)
 
@@ -42,16 +42,9 @@ class ProphetWrapper(BaseWrapper):
     def train(self, model_params):
         # uncertainty_samples = False to speed up the prediction
         self.model = Prophet(uncertainty_samples=False, **model_params)
-
         self.model.fit(self.training)
 
-        self.qmodels = [Prophet(interval_width=quantile, **model_params)
-                        for quantile in self.quantiles]
-
-        for qmodel in self.qmodels:
-            qmodel.fit(self.training)
-
-    def predict(self, X, future_steps, quantile=False):
+    def predict(self, X, future_steps):
         """
         Uses the input "X" to predict "future_steps" steps into the future for each os the instances in "X".
 
@@ -60,9 +53,6 @@ class ProphetWrapper(BaseWrapper):
 
         :param future_steps:
             Number of steps in the future to predict.
-
-        :param quantile:
-            Use quantile models instead of the mean based.
 
         """
 
@@ -76,13 +66,7 @@ class ProphetWrapper(BaseWrapper):
 
             future_df = pd.DataFrame({'ds': future_dates})
 
-            if quantile:
-                prediction = [qmodel.predict(future_df).yhat_upper
-                              for qmodel in self.qmodels]
-                prediction = np.array(prediction)
-                prediction = prediction.T
-            else:
-                prediction = self.model.predict(future_df).yhat
+            prediction = self.model.predict(future_df).yhat
 
             return prediction
 
@@ -92,7 +76,7 @@ class ProphetWrapper(BaseWrapper):
 
         return Y_hat
 
-    def auto_ml_predict(self, X, future_steps, quantile, history):
+    def auto_ml_predict(self, X, future_steps, history):
         # date column to datetime type
         X[self.index_label] = pd.to_datetime(X[self.index_label])
         # removing timezone
@@ -103,11 +87,11 @@ class ProphetWrapper(BaseWrapper):
             self.target_label: 'y'
         }, inplace=True)
 
-        y = self.predict(X, future_steps, quantile=quantile)
+        y = self.predict(X, future_steps)
         return y
 
-    def next(self, X, future_steps, quantile):
-        return self.predict(self.last_x, future_steps, quantile=quantile)
+    def next(self, X, future_steps):
+        return self.predict(self.last_x, future_steps)
 
     params_list = [{
         'growth': 'linear',
@@ -115,7 +99,7 @@ class ProphetWrapper(BaseWrapper):
         'weekly_seasonality': 'auto',
         'daily_seasonality': 'auto',
         'seasonality_mode': 'additive',
-    },{
+    }, {
         'growth': 'linear',
         'yearly_seasonality': 'auto',
         'weekly_seasonality': 'auto',
@@ -141,29 +125,14 @@ class ProphetWrapper(BaseWrapper):
 
             y_pred = cur_wrapper.predict(
                 cur_wrapper.validation, max(auto_ml.important_future_timesteps))
-            
+
             # selecting only the important timesteps
-            y_pred = y_pred[:, [-(n-1) for n in auto_ml.important_future_timesteps]]
+            y_pred = y_pred[:, [-(n-1)
+                                for n in auto_ml.important_future_timesteps]]
             y_pred = y_pred[:-max(auto_ml.important_future_timesteps), :]
 
             auto_ml.evaluation_results[prefix +
-                                    str(c)]['default'] = auto_ml._evaluate_model(y_val_matrix.T, y_pred)
-
-            # quantile values
-            q_pred = cur_wrapper.predict(
-                cur_wrapper.validation, max(auto_ml.important_future_timesteps), quantile=True)
-
-            # selecting only the important timesteps
-            for i, pred in enumerate(q_pred):
-                q_pred[i] = pred[[-(n-1) for n in auto_ml.important_future_timesteps], :]
-
-            for i in range(len(auto_ml.quantiles)):
-                quantile = auto_ml.quantiles[i]
-                qi_pred = [pred[:, i] for pred in q_pred]
-                qi_pred = qi_pred[:-max(auto_ml.important_future_timesteps)]
-
-                auto_ml.evaluation_results[prefix + str(c)][str(
-                    quantile)] = auto_ml._evaluate_model(y_val_matrix.T, qi_pred, quantile)
+                                       str(c)] = auto_ml._evaluate_model(y_val_matrix.T, y_pred)
 
             wrapper_list.append(copy.copy(cur_wrapper))
 

@@ -33,13 +33,14 @@ class SarimaWrapper(BaseWrapper):
         self.validation = self.data.iloc[train_size:]
 
         self.last_x = self.validation[self.target_label]
-        
+
         # Setting parameters possibilities
         # set parameter range
         number_of_possibilities = min([len(self.past_lags), 5])
-        
+
         lag_possibilities = list(self.past_lags)
-        lag_possibilities.remove(self.seasonality) # removing the lag duplication
+        # removing the lag duplication
+        lag_possibilities.remove(self.seasonality)
         p = random.sample(lag_possibilities, number_of_possibilities-1)
         d = random.sample(list(self.past_lags), number_of_possibilities)
         q = random.sample(lag_possibilities, number_of_possibilities-1)
@@ -49,18 +50,19 @@ class SarimaWrapper(BaseWrapper):
         seasonal_pdq = list(itertools.product(p, d, q, [self.seasonality]))
         combinations = list(itertools.product(pdq, seasonal_pdq))
 
-        self.params_list = list(map(lambda params: {'order': params[0], 'seasonal_order': params[1]}, combinations))
+        self.params_list = list(map(
+            lambda params: {'order': params[0], 'seasonal_order': params[1]}, combinations))
 
-    def train(self, model_params, quantile_params=None):
+    def train(self, model_params):
         try:
             to_train = self.training.set_index(self.index_label)
             pre_model = sm.tsa.statespace.SARIMAX(to_train, **model_params)
             self.model = pre_model.fit(maxiter=35)
             del to_train
-        except LinAlgError as er: # can occur an matrix generation error during the calculations
+        except LinAlgError as er:  # can occur an matrix generation error during the calculations
             print(er)
 
-    def predict(self, X, future_steps, quantile=False):
+    def predict(self, X, future_steps):
         """
         Uses the input "X" to predict "future_steps" steps into the future for each os the instances in "X".
 
@@ -70,32 +72,24 @@ class SarimaWrapper(BaseWrapper):
         :param future_steps:
             Number of steps in the future to predict.
 
-        :param quantile:
-            Use quantile models instead of the mean based.
-
         """
 
-        Y_hat = np.zeros((len(X), future_steps, len(self.quantiles))
-                         ) if quantile else np.zeros((len(X), future_steps))
+        Y_hat = np.zeros((len(X), future_steps))
 
-        if quantile:
-            # not implemented
-            pass
-        else:
-            for i in range(len(X)):
-                local_model = copy.copy(self.model)
-                local_model.apply(X[self.target_label][:i])
-                cur_y_hat = local_model.forecast(steps=future_steps)
-                Y_hat[i] = cur_y_hat
-                del local_model
+        for i in range(len(X)):
+            local_model = copy.copy(self.model)
+            local_model.apply(X[self.target_label][:i])
+            cur_y_hat = local_model.forecast(steps=future_steps)
+            Y_hat[i] = cur_y_hat
+            del local_model
 
         return Y_hat
 
-    def auto_ml_predict(self, X, future_steps, quantile, history):
-        y = self.predict(X, future_steps, quantile=quantile)
+    def auto_ml_predict(self, X, future_steps, history):
+        y = self.predict(X, future_steps)
         return y
 
-    def next(self, X, future_steps, quantile):
+    def next(self, X, future_steps):
         local_model = copy.copy(self.model)
         local_model.apply(self.last_x)
 
@@ -127,11 +121,7 @@ class SarimaWrapper(BaseWrapper):
 
             y_pred = y_pred[:-max(auto_ml.important_future_timesteps), :]
             auto_ml.evaluation_results[prefix +
-                                    str(c)]['default'] = auto_ml._evaluate_model(y_val_matrix.T, y_pred)
-
-            # quantile values
-            # q_pred = np.array(cur_wrapper.predict(
-            #     cur_wrapper.validation[0], max(auto_ml.important_future_timesteps), quantile=True))[:, [-(n-1) for n in auto_ml.important_future_timesteps], :]
+                                       str(c)] = auto_ml._evaluate_model(y_val_matrix.T, y_pred)
 
             wrapper_list.append(copy.copy(cur_wrapper))
 
