@@ -14,7 +14,7 @@ class LightGBMWrapper(BaseWrapper):
         self.data = self.automl._data_shift.transform(data)
         self.past_labels = self.automl._data_shift.past_labels
         self.past_lags = self.automl._data_shift.past_lags
-        self.oldest_lag = int(max(self.past_lags)) + 1
+        self.oldest_lag = int(max(self.past_lags))
         self.index_label = self.automl.index_label
         self.target_label = self.automl.target_label
         self.last_x = data.drop(

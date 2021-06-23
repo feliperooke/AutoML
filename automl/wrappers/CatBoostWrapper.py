@@ -14,7 +14,7 @@ class CatBoostWrapper(BaseWrapper):
         self.data = self.automl._data_shift.transform(data)
         self.past_labels = self.automl._data_shift.past_labels
         self.past_lags = self.automl._data_shift.past_lags
-        self.oldest_lag = int(max(self.past_lags)) + 1
+        self.oldest_lag = int(max(self.past_lags))
         self.index_label = self.automl.index_label
         self.target_label = self.automl.target_label
         self.last_x = data.drop(
@@ -31,7 +31,7 @@ class CatBoostWrapper(BaseWrapper):
 
     def train(self, model_params):
         self.model = cat.CatBoostRegressor(**model_params)
-        self.model.fit(self.training[0], self.training[1])
+        self.model.fit(self.training[0], self.training[1], verbose=False)
 
     def predict(self, X, future_steps):
         """
@@ -100,7 +100,7 @@ class CatBoostWrapper(BaseWrapper):
 
     @staticmethod
     def _evaluate(auto_ml, cur_wrapper):
-        prefix = 'LightGBM'
+        prefix = 'CatBoost'
 
         print(f'Evaluating {prefix}')
 

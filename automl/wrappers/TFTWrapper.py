@@ -24,7 +24,7 @@ class TFTWrapper(BaseWrapper):
     def transform_data(self, data):
 
         self.past_lags = self.automl._data_shift.past_lags
-        self.oldest_lag = int(max(self.past_lags)) + 1
+        self.oldest_lag = int(max(self.past_lags))
         self.index_label = self.automl.index_label
         self.target_label = self.automl.target_label
 

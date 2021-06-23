@@ -22,7 +22,7 @@ class SarimaWrapper(BaseWrapper):
 
         # the seasonal part is determinated by the last lag
         self.seasonality = int(max(self.past_lags))
-        self.oldest_lag = self.seasonality + 1
+        self.oldest_lag = self.seasonality
 
         self.index_label = self.automl.index_label
         self.target_label = self.automl.target_label

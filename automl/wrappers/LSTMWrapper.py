@@ -86,13 +86,13 @@ class LSTMWrapper(BaseWrapper):
         cur_X = X.copy()
 
         for step in range(future_steps):
-            Y_hat[:, step] = self.model.predict(cur_X)
-            cur_x = np.roll(cur_x, -1)
+            Y_hat[:, step] = np.squeeze(self.model.predict(cur_X))
+            cur_X = np.roll(cur_X, -1)
             cur_X[:, -1, 0] = Y_hat[:, step]
 
         return Y_hat
 
-    def auto_ml_predict(self, X, future_steps, history):
+    def auto_ml_predict(self, X, future_steps):
         X = self.automl._data_shift.transform(X)
         X = X.drop(self.index_label, axis=1)
         X = np.reshape(X.values, (X.shape[0], X.shape[1], 1))
