@@ -1,10 +1,9 @@
 import copy
 import pytorch_lightning as pl
 from tqdm import tqdm
-from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor
+from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_forecasting.metrics import QuantileLoss
 from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
-from sklearn.model_selection import train_test_split
 import pandas as pd
 import numpy as np
 from .BaseWrapper import BaseWrapper
@@ -98,7 +97,6 @@ class TFTWrapper(BaseWrapper):
 
         early_stop_callback = EarlyStopping(
             monitor="val_loss", min_delta=1e-4, patience=10, verbose=False, mode="min")
-        # lr_logger = LearningRateMonitor()
 
         trainer = pl.Trainer(
             max_epochs=max_epochs,
@@ -118,30 +116,10 @@ class TFTWrapper(BaseWrapper):
             dropout=dropout,
             hidden_continuous_size=hidden_continuous_size,
             lstm_layers=lstm_layers,
-            output_size=len(self.quantiles),  # 3 quantiles by default
-            loss=QuantileLoss(self.quantiles),
+            output_size=3,  # 3 quantiles by default
+            loss=QuantileLoss(),
             reduce_on_plateau_patience=reduce_on_plateau_patience,
         )
-
-        # res = trainer.tuner.lr_find(
-        #     self.model,
-        #     train_dataloader=train_dataloader,
-        #     val_dataloaders=val_dataloader,
-        #     max_lr=10.0,
-        #     min_lr=1e-6,
-        # )
-
-        # self.model = TemporalFusionTransformer.from_dataset(
-        #     self.intern_training,
-        #     learning_rate=res.suggestion(), # using the suggested learining rate
-        #     hidden_size=hidden_size,
-        #     attention_head_size=attention_head_size,
-        #     dropout=dropout,
-        #     hidden_continuous_size=hidden_continuous_size,
-        #     output_size=len(self.quantiles),  # 3 quantiles by default
-        #     loss=QuantileLoss(self.quantiles),
-        #     reduce_on_plateau_patience=reduce_on_plateau_patience,
-        # )
 
         # fit network
         trainer.fit(
@@ -150,7 +128,7 @@ class TFTWrapper(BaseWrapper):
             val_dataloaders=val_dataloader,
         )
 
-    def _auto_feed(self, X, future_steps, quantile=False):
+    def _auto_feed(self, X, future_steps):
         """
         Perform autofeed over the X values to predict the futures steps.
         """
@@ -165,9 +143,6 @@ class TFTWrapper(BaseWrapper):
             }
             return cur_X.append(new_entry, ignore_index=True)
 
-        # prediction or quantile mode
-        mode = 'quantiles' if quantile else 'prediction'
-
         # interval between dates (last two dates in the dataset)
         cur_X = X.copy()
         date_step = cur_X[self.index_label].iloc[-1] - \
@@ -177,25 +152,19 @@ class TFTWrapper(BaseWrapper):
 
         # if the future steps is less or equals than the oldest lag the model can predict it by default
         if future_steps <= self.oldest_lag:
-            predict = self.model.predict(cur_X, mode=mode)[0].numpy().tolist()
+            predict = self.model.predict(cur_X, mode='prediction')[0].numpy().tolist()
             return predict[:future_steps]
         else:
             # short cut the auto feed prediction with more reliable prediction
-            predict = self.model.predict(cur_X, mode=mode)[0].numpy().tolist()
+            predict = self.model.predict(cur_X, mode='prediction')[0].numpy().tolist()
             for new_value in predict:
-                if quantile:
-                    new_value = new_value[1]
                 cur_X = append_new_data(cur_X, new_value, date_step)
             y = predict
 
         for _ in range(self.oldest_lag, future_steps):
-            predict = self.model.predict(cur_X, mode=mode)[0][0]
-            if quantile:
-                y.append(predict.numpy().tolist())
-                new_value = y[-1][1]  # get quantil 0.5
-            else:
-                y.append(float(predict.numpy()))
-                new_value = y[-1]
+            predict = self.model.predict(cur_X, mode='prediction')[0][0]
+            y.append(float(predict.numpy()))
+            new_value = y[-1]
 
             cur_X = append_new_data(cur_X, new_value, date_step)
 
@@ -205,7 +174,7 @@ class TFTWrapper(BaseWrapper):
         if not self.target_label in data.columns:
             data[self.target_label] = 0
 
-    def predict(self, X, future_steps, history, quantile=False):
+    def predict(self, X, future_steps, history):
         predictions = []
 
         self._verify_target_column(X)
@@ -221,20 +190,20 @@ class TFTWrapper(BaseWrapper):
             X_temp["time_idx"] = time_idx
             X_temp['group_id'] = 'series'
 
-            y = self._auto_feed(X_temp, future_steps, quantile)
+            y = self._auto_feed(X_temp, future_steps)
             predictions.append(y)
 
         return predictions
 
-    def auto_ml_predict(self, X, future_steps, quantile, history):
+    def auto_ml_predict(self, X, future_steps, history):
         if not isinstance(history, pd.DataFrame) or len(history) < self.oldest_lag * 2:
             raise Exception(f'''To make a prediction with TFT, the history parameter must
                             be a dataframe sample with at least 2 times the {self.oldest_lag} long''')
         y = self.predict(
-            X, future_steps, history=history, quantile=quantile)
+            X, future_steps, history=history)
         return y
 
-    def next(self, X, future_steps, quantile):
+    def next(self, X, future_steps):
 
         self._verify_target_column(X)
 
@@ -251,7 +220,7 @@ class TFTWrapper(BaseWrapper):
 
         cur_X.index = list(range(len(cur_X)))
 
-        y = self._auto_feed(cur_X, future_steps, quantile)
+        y = self._auto_feed(cur_X, future_steps)
 
         return y
 
@@ -328,22 +297,6 @@ class TFTWrapper(BaseWrapper):
 
             auto_ml.evaluation_results[prefix +
                                  str(c)]['default'] = auto_ml._evaluate_model(y_val_matrix.T.squeeze(), y_pred)
-
-            # quantile values
-            q_pred = np.array(cur_wrapper.predict(
-                cur_wrapper.validation[0],
-                future_steps=max(auto_ml.important_future_timesteps),
-                history=cur_wrapper.last_period,
-                quantile=True
-            ))[:, [-(n-1) for n in auto_ml.important_future_timesteps], :]
-
-            for i in range(len(auto_ml.quantiles)):
-                qi_pred = q_pred[:, :, i]
-                qi_pred = qi_pred[:-max(auto_ml.important_future_timesteps), :]
-                quantile = auto_ml.quantiles[i]
-
-                auto_ml.evaluation_results[prefix + str(c)][str(quantile)] = auto_ml._evaluate_model(
-                    y_val_matrix.T.squeeze(), qi_pred, quantile)
 
             wrapper_list.append(copy.copy(cur_wrapper))
 
