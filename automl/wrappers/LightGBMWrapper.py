@@ -26,6 +26,9 @@ class LightGBMWrapper(BaseWrapper):
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, train_size=self.automl.train_val_split, shuffle=False)
 
+        # filtering the usefull lags
+        X_train = self.automl._data_shift.filter_lags(X_train)
+
         self.training = (X_train, y_train)
         self.validation = (X_test, y_test)
 
@@ -54,7 +57,7 @@ class LightGBMWrapper(BaseWrapper):
             cur_x = x.copy()
             for step in range(future_steps):
                 cur_y_hat = self.model.predict(
-                    cur_x[self.past_lags].reshape(1, -1))
+                    self.automl._data_shift.filter_lags(cur_x).reshape(1, -1))
                 Y_hat[i, step] = cur_y_hat
                 cur_x = np.roll(cur_x, -1)
                 cur_x[-1] = cur_y_hat

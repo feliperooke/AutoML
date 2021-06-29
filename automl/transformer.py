@@ -1,6 +1,7 @@
 from sklearn.base import BaseEstimator, TransformerMixin
 from statsmodels.tsa.stattools import pacf
 import numpy as np
+import pandas as pd
 
 class DataShift(BaseEstimator, TransformerMixin):
 
@@ -56,8 +57,7 @@ class DataShift(BaseEstimator, TransformerMixin):
         idx = max_lags
         while True:
             new_line = data.iloc[idx - max_lags : idx, 1].values
-            # remove the non correlated lags
-            new_line = new_line[past_lags]
+            
             X.append(new_line)
             
             idx += 1
@@ -65,13 +65,26 @@ class DataShift(BaseEstimator, TransformerMixin):
             if idx >= len(data): break
 
         # label of each past lag going from -max_lags to -min_lags
-        past_labels = ['target_' + str(-(i + 1))
-                       for i in reversed(past_lags)]
+        past_labels = ['target_' + str(-(i))
+                       for i in range(max_lags, 0, -1)]
 
         data = data.iloc[max_lags:, :]
         data.loc[:, past_labels] = X
 
         return data, past_labels
+
+    def filter_lags(self, data):
+
+        # if it is a dataframe filter the selected lags by columns
+        if isinstance(data, pd.DataFrame):
+            # label of each past lag going from -max_lags to -min_lags
+            useful_past_labels = ['target_' + str(-(i + 1))
+                        for i in reversed(self.past_lags)]
+            return data[useful_past_labels]
+
+        # if it is an array filter by position
+        elif isinstance(data, np.array):
+            return data[self.past_lags]
 
     def fit(self, data):
         _, self._target_label = tuple(data.columns)

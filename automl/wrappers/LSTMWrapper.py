@@ -28,6 +28,9 @@ class LSTMWrapper(BaseWrapper):
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, train_size=self.automl.train_val_split, shuffle=False)
 
+        # filtering the usefull lags
+        X_train = self.automl._data_shift.filter_lags(X_train)
+
         X_train = np.reshape(
             X_train.values, (X_train.shape[0], X_train.shape[1], 1))
         X_test = np.reshape(
@@ -39,23 +42,23 @@ class LSTMWrapper(BaseWrapper):
     def create_model(self, layers, optimizer='adam', activation='relu', loss='mse'):
         lstm_model = Sequential()
         if(len(layers) > 2):
-            lstm_model.add(LSTM(int(layers[0]*self.oldest_lag), input_shape=(
-                self.oldest_lag, 1), return_sequences=True))
+            lstm_model.add(LSTM(int(layers[0]*len(self.past_lags)), input_shape=(
+                len(self.past_lags), 1), return_sequences=True))
             for layer in layers[1:-1]:
                 lstm_model.add(
-                    LSTM(int(layer*self.oldest_lag), return_sequences=True))
+                    LSTM(int(layer*len(self.past_lags)), return_sequences=True))
             lstm_model.add(
-                LSTM(int(layers[-1]*self.oldest_lag), activation=activation))
+                LSTM(int(layers[-1]*len(self.past_lags)), activation=activation))
 
         elif(len(layers) == 2):
-            lstm_model.add(LSTM(int(layers[0]*self.oldest_lag), input_shape=(
-                self.oldest_lag, 1), return_sequences=True))
+            lstm_model.add(LSTM(int(layers[0]*len(self.past_lags)), input_shape=(
+                len(self.past_lags), 1), return_sequences=True))
             lstm_model.add(
-                LSTM(int(layers[1]*self.oldest_lag), activation=activation))
+                LSTM(int(layers[1]*len(self.past_lags)), activation=activation))
 
         elif(len(layers) == 1):
-            lstm_model.add(LSTM(int(layers[0]*self.oldest_lag), activation=activation, input_shape=(
-                self.oldest_lag, 1)))
+            lstm_model.add(LSTM(int(layers[0]*len(self.past_lags)), activation=activation, input_shape=(
+                len(self.past_lags), 1)))
 
         lstm_model.add(Dense(1))
         lstm_model.compile(optimizer=optimizer, loss=loss)
@@ -86,8 +89,10 @@ class LSTMWrapper(BaseWrapper):
         cur_X = X.copy()
 
         for step in range(future_steps):
+            cur_X = cur_X[:, self.past_lags, :]
             Y_hat[:, step] = np.squeeze(self.model.predict(cur_X))
             cur_X = np.roll(cur_X, -1)
+
             cur_X[:, -1, 0] = Y_hat[:, step]
 
         return Y_hat

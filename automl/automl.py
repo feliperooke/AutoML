@@ -61,6 +61,7 @@ class AutoML:
 
         # the chosen model
         self.model = None
+        self.model_name = ''
         self.quantile_models = []
 
         self._transform_data()
@@ -140,6 +141,7 @@ class AutoML:
             if prefix in min_metric:
                 idx = int(min_metric[-1])
                 self.model = wrapper_result_dict[prefix][idx]
+                self.model_name = prefix+str(idx)
 
     def predict(self, X, future_steps, history=[]):
         """
