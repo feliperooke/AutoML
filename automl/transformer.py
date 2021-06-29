@@ -83,7 +83,7 @@ class DataShift(BaseEstimator, TransformerMixin):
             return data[useful_past_labels]
 
         # if it is an array filter by position
-        elif isinstance(data, np.array):
+        elif isinstance(data, (np.ndarray, np.generic)):
             return data[self.past_lags]
 
     def fit(self, data):
