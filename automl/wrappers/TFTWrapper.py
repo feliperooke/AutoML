@@ -117,7 +117,7 @@ class TFTWrapper(BaseWrapper):
             hidden_continuous_size=hidden_continuous_size,
             lstm_layers=lstm_layers,
             output_size=3,  # 3 quantiles by default
-            loss=QuantileLoss(),
+            loss=QuantileLoss([.1, .5, .9]),
             reduce_on_plateau_patience=reduce_on_plateau_patience,
         )
 
