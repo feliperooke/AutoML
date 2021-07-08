@@ -91,3 +91,14 @@ target/
 # tft cache
 /notebooks/lightning_logs/
 /notebooks/tests/
+
+#venv
+env/*
+
+*_logs
+
+*_info
+
+*.csv
+
+teste.py
