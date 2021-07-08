@@ -296,7 +296,7 @@ class TFTWrapper(BaseWrapper):
             y_pred = y_pred[:-max(auto_ml.important_future_timesteps), :]
 
             auto_ml.evaluation_results[prefix +
-                                 str(c)]['default'] = auto_ml._evaluate_model(y_val_matrix.T.squeeze(), y_pred)
+                                 str(c)] = auto_ml._evaluate_model(y_val_matrix.T.squeeze(), y_pred)
 
             wrapper_list.append(copy.copy(cur_wrapper))
 
